@@ -28,7 +28,7 @@ Status legend:
 | `-cleanup` | Remove states dir before run. | Add pre-run cleanup option toggling storage manager. | ✅ |
 | `-continue` | Do not halt on invariant violation. | CLI flag sets `RunPolicy::ContinueOnViolation`. | ✅ |
 | `-deadlock` | Skip deadlock checking (equivalent to `CHECK_DEADLOCK=FALSE`). | CLI flag toggles engine behavior & overrides config default. | ✅ |
-| `-coverage minutes` | Emit module coverage data at interval + final report. | Integrate with metrics module replicating output format documented in `docs/module-coverage-statistics.md`. | 🟡 Format fidelity + cost accounting to be validated. |
+| `-coverage minutes` | Emit module coverage data at interval + final report. | Keep minute→ms parsing, reuse the progress ticker to schedule `CostModel` snapshots, stream the exact `MP` message catalog (`TLC_COVERAGE_*`) with eval/new-state counts and cost metrics, warn after 5 min of collection, and share collectors with simulation + final summary. | ✅ |
 | `-postCondition mod!oper` | Evaluate constant-level operator at end. | Add `postcondition` runner executing constant expression with same semantics. | 🟡 Needs evaluation pipeline design. |
 | `-difftrace` | Print only differences between successive states. | Mirror legacy trace printer behavior in Rust `trace` module. | ✅ |
 | `-dumpTrace format file` | Dump error trace as TLA or JSON to file; supports multiple invocations. | Implement writer supporting `tla`/`json` (pluggable). Ensure file path relative to spec dir. | ✅ |
@@ -112,6 +112,16 @@ Additional behaviors:
 - **Artifact routing**: The selected metadir is passed to `DiskStateQueue`, `DiskByteArrayQueue`, fingerprint set factories, trace storage, and liveness stacks, so all checkpoint/state artifacts land under the chosen root. `FileUtil.createTempFile` also seeds its temp directories beneath `metaDir` when set, keeping scratch files co-located with run outputs.
 - **Cleanup behavior**: `-cleanup` removes the default `states/` root before execution when not recovering, matching Java’s behavior. Runs that opted into `-metadir` are expected to manage their custom directories, so Rust will avoid deleting user-specified paths automatically.
 - **Distributed parity**: `TLCApp` accepts the same flag and forwards the resulting base to distributed workers; the Rust CLI/server pair will share the same configuration flow so cloud and local runs keep identical directory layouts.
+
+---
+
+## Coverage Reporting Notes
+
+- **Interval semantics**: `-coverage N` stores `coverageInterval = N * 60_000` (minutes). Progress polling runs every `progressInterval` (default 60 s via system property `tlc2.TLC.progressInterval`), and TLC divides the two to decide how many polls to skip. Integer division means `N < progressInterval_minutes` collapses to zero, yielding coverage output on every poll; `0` is accepted and treated the same. Rust will preserve this quotient logic so long-standing scripts stay compatible.
+- **Data collection**: Enabling coverage wraps each evaluated operator in a `CostModel` tree. Variables record distinct values via HyperLogLog sketches, init/next/invariant/constraint actions report `evaluations:successes`, and nested expressions emit their evaluation counts plus optional allocation cost when they build compound values. The CLI prints via the `MP` catalog codes `TLC_COVERAGE_*` (`_START`, `_VAR`, `_INIT`, `_NEXT`, `_VALUE[_COST]`, `_END[_OVERHEAD]`, etc.) so Toolbox parsers can consume structured data. Rust’s evaluator must mirror this instrumentation, including cost accounting for collections.
+- **Output cadence**: During both model checking and simulation, coverage snapshots fire on the progress loop, then again inside the final `printSummary()`/`Simulator` shutdown so the last report always includes totals. If coverage has been active for more than five minutes, TLC emits `TLC_COVERAGE_END_OVERHEAD` to remind users of the runtime impact; shorter runs just print `TLC_COVERAGE_END`. We’ll reproduce the same heuristic by comparing wall-clock runtime to a 5-minute threshold.
+- **Guard rails**: Coverage only runs when actions exist and `coverageInterval >= 0`; `-coverage` is ignored in distributed TLC (`TLCApp` currently comments out parsing) but Toolbox passes it for local runs. Rust will short-circuit the collectors when coverage is disabled to avoid the ~40 % overhead described in the legacy comments.
+- **Spec interaction**: Coverage statistics respect implied inits/actions when the optional system property `tlc2.tool.coverage.CostModelCreator.implied=true` is set, and they are symmetry-blind (assume uniform coverage within an orbit). Rust should retain the property hook and document symmetry caveats alongside the legacy behavior.
 
 ---
 
