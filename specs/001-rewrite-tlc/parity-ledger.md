@@ -29,7 +29,7 @@ Status legend:
 | `-continue` | Do not halt on invariant violation. | CLI flag sets `RunPolicy::ContinueOnViolation`. | ✅ |
 | `-deadlock` | Skip deadlock checking (equivalent to `CHECK_DEADLOCK=FALSE`). | CLI flag toggles engine behavior & overrides config default. | ✅ |
 | `-coverage minutes` | Emit module coverage data at interval + final report. | Keep minute→ms parsing, reuse the progress ticker to schedule `CostModel` snapshots, stream the exact `MP` message catalog (`TLC_COVERAGE_*`) with eval/new-state counts and cost metrics, warn after 5 min of collection, and share collectors with simulation + final summary. | ✅ |
-| `-postCondition mod!oper` | Evaluate constant-level operator at end. | Add `postcondition` runner executing constant expression with same semantics. | 🟡 Needs evaluation pipeline design. |
+| `-postCondition mod!oper` | Evaluate constant-level operator at end. | Accept repeated `mod!op` arguments, ensure modules are auto-extended, allow optional operator rebindings for built-in exporters, and after each run (success or failure) validate via `Tool.checkPostCondition`, passing `TLCExt!CounterExample` on failure. | ✅ |
 | `-difftrace` | Print only differences between successive states. | Mirror legacy trace printer behavior in Rust `trace` module. | ✅ |
 | `-dumpTrace format file` | Dump error trace as TLA or JSON to file; supports multiple invocations. | Implement writer supporting `tla`/`json` (pluggable). Ensure file path relative to spec dir. | ✅ |
 | `-inv expr` | Evaluate additional invariant expression. | CLI maps to `RunConfiguration.extra_invariants`; reused in engine. | ✅ |
@@ -70,7 +70,7 @@ Status legend:
 | `ACTION_CONSTRAINT`(S) | Action-level constraints filtering transitions. | Mirror behavior in action evaluation. | ✅ |
 | `INVARIANT(S)` | Additional state invariants. | Already covered via CLI + config ingestion. | ✅ |
 | `PROPERTY` / `PROPERTIES` | Temporal (LTL) properties to check. | Port property checker & liveness graph. | 🟡 Requires full liveness checking port. |
-| `POSTCONDITION` | Evaluate operator at end (mirrors CLI). | Share execution path with CLI option. | 🟡 Shared implementation outstanding. |
+| `POSTCONDITION` | Evaluate zero-arity operator after search completes; Toolbox writes one per line. | Shares evaluator with CLI options, requires operator defined in spec/model, and errors mirror `ASSUME` failures (`TLC_ASSUMPTION_*`). | ✅ |
 | `SYMMETRY` | Symmetry reduction specification. | Implement symmetry reduction engine parity. | 🟡 Complex: need design for orbit representatives & hashing. |
 | `_PERIODIC` | Name of a 0-arity operator that TLC re-evaluates during each scheduler “periodic work” cycle; if it ever returns `FALSE`, TLC aborts with `TLC_ASSUMPTION_FALSE` (used to encode run-time assumptions during long runs). | **Will not be ported.** Document migration guidance pointing users to external run supervisors (e.g., monitor NDJSON progress + cancel). | 🔴 Intentional gap—track doc update. |
 | `_RL_REWARD` | Name of a 0-arity operator whose integer value feeds the reinforcement-learning simulation workers (`RLSimulationWorker`) as the reward signal (defaults controlled by `Simulator.rl.*` system props). | **Will not be ported.** Note RL-guided simulation removal in release notes and provide alternative suggestions (e.g., external fuzzing). | 🔴 Intentional gap—track doc update. |
@@ -122,6 +122,18 @@ Additional behaviors:
 - **Output cadence**: During both model checking and simulation, coverage snapshots fire on the progress loop, then again inside the final `printSummary()`/`Simulator` shutdown so the last report always includes totals. If coverage has been active for more than five minutes, TLC emits `TLC_COVERAGE_END_OVERHEAD` to remind users of the runtime impact; shorter runs just print `TLC_COVERAGE_END`. We’ll reproduce the same heuristic by comparing wall-clock runtime to a 5-minute threshold.
 - **Guard rails**: Coverage only runs when actions exist and `coverageInterval >= 0`; `-coverage` is ignored in distributed TLC (`TLCApp` currently comments out parsing) but Toolbox passes it for local runs. Rust will short-circuit the collectors when coverage is disabled to avoid the ~40 % overhead described in the legacy comments.
 - **Spec interaction**: Coverage statistics respect implied inits/actions when the optional system property `tlc2.tool.coverage.CostModelCreator.implied=true` is set, and they are symmetry-blind (assume uniform coverage within an orbit). Rust should retain the property hook and document symmetry caveats alongside the legacy behavior.
+
+---
+
+## Postcondition Notes
+
+- **Sources & parsing**: CLI `-postCondition module!Operator` (case-insensitive) may appear multiple times; the parser validates `module!operator` without dots, collects them into `ParameterizedSpecObj.POST_CONDITIONS`, and `ParameterizedSpecObj` auto-extends the root module so the referenced module is available. Config `POSTCONDITION Foo` contributes the same operator list by name, and both sources are merged before spec elaboration.
+- **Built-in exporters**: `-dumpTrace` piggybacks on the same pipeline by registering postconditions that live in helper modules (e.g., `_JsonTrace`, `_TLCTrace`). Each registration can redefine helper operator constants (such as `_TLCTraceFile`) to the user-supplied output path via `PostCondition.redefinitions`. Rust must keep this hook so new formats can be delivered as pure TLA modules.
+- **Evaluation timing**: After safety checking (and final liveness check) succeeds, `ModelChecker` calls `Tool.checkPostCondition()`. On any violation or init failure, the engine invokes `checkPostConditionWithCounterExample`, supplying a `TLCExt!CounterExample` record that encodes the (alias-mapped) trace; `Worker` and `LiveCheck` trigger this in error paths, and simulation mode does the same. The code sets `EvalControl.Const` so evaluation happens in the “constant context” used for ASSUME statements.
+- **Return codes**: A postcondition that evaluates to `FALSE` surfaces as `EC.TLC_ASSUMPTION_FALSE`; evaluation failures use `EC.TLC_ASSUMPTION_EVALUATION_ERROR`, matching ASSUME diagnostics so Toolbox tooling stays compatible.
+- **Constraints**: Operators must be zero-arity and constant-level. Config validation rejects missing or non-operator references (`EC.TLC_CONFIG_SPECIFIED_NOT_DEFINED`, `EC.TLC_CONFIG_ID_REQUIRES_NO_ARG`). CLI syntax prevents dotted names to avoid parameterized instantiations; extending modules via `ModulePointer.getRelatives().addExtendee` mirrors Java behavior when ported.
+- **Counterexample helpers**: `TLCExt!CounterExample` exposes the trace as a record of `state`/`action` tuples, and `CounterExample.toTrace()` yields a tuple for TE specs. Any postcondition that depends on the violation context (e.g., writing JSON) must import `TLCExt` and will continue to work when `checkPostConditionWithCounterExample` supplies the value.
+- **Concurrency & retries**: With `-continue`, every discovered violation triggers the postcondition check (with its corresponding counterexample record). Rust should run postconditions after each failing behavior and after the run finishes to maintain parity.
 
 ---
 
