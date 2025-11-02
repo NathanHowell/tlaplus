@@ -193,6 +193,18 @@ Additional behaviors:
 
 ---
 
+## Tool Mode Message Notes (`-tool`)
+
+- **CLI & implicit enablement**: `-tool` simply sets `TLCGlobals.tool = true` (`tlatools/org.lamport.tlatools/src/tlc2/TLC.java:551-555`), and the distributed launcher mirrors this (`tlatools/org.lamport.tlatools/src/tlc2/tool/distributed/TLCApp.java:369-385`). TLC also forces tool mode automatically when running from bundled specs (`ModelInJar`) so Toolbox automation can parse output (`tlatools/org.lamport.tlatools/src/tlc2/TLC.java:1098-1106`).
+- **Delimited message protocol**: When `TLCGlobals.tool` is true, every `MP.getMessage` call wraps output in `@!@!@STARTMSG <code>:<class> @!@!@` / `@!@!@ENDMSG <code> @!@!@` blocks (`tlatools/org.lamport.tlatools/src/tlc2/output/MP.java:263-317`). Rust must emit the exact delimiters, spacing, and message codes so Toolbox/VS Code parsers continue to function.
+- **State printing & traces**: Tool mode alters state formatting in `StatePrinter` and related helpers so traces appear as structured records instead of prose (`tlatools/org.lamport.tlatools/src/tlc2/output/StatePrinter.java:74-141`). The Rust trace printer needs identical metadata ordering, fingerprint handling, and `EC.TLC_BACK_TO_STATE` formatting.
+- **Lifecycle instrumentation**: Several subsystems gate additional telemetry when tool mode is active—`SpecProcessor` wraps SANY start/end messages (`tlatools/org.lamport.tlatools/src/tlc2/tool/impl/SpecProcessor.java:383-410`), `ModelChecker#printSummary` emits final progress statistics (`tlatools/org.lamport.tlatools/src/tlc2/tool/ModelChecker.java:869-872`), and startup banners annotate runs with `toolbox` metadata (`tlatools/org.lamport.tlatools/src/tlc2/TLC.java:1556-1557`). Rust should preserve these hooks so IDE integrations stay feature-complete.
+- **ToolIO interaction**: The Toolbox sets `ToolIO.setMode(ToolIO.TOOL)` before launching TLC so `ToolIO.out/err` can be captured (`tlatools/org.lamport.tlatools/src/util/ToolIO.java:20-115`). The standalone CLI leaves ToolIO in SYSTEM mode, producing delimited lines on stdout; Rust should expose both behaviors and avoid double-buffering when another process already switched modes.
+- **Trace explorer side-effects**: Tool mode suppresses automatic Trace Explorer spec generation unless explicitly forced (`tlatools/org.lamport.tlatools/src/tlc2/TLC.java:1114-1126`), so the Rust planner must respect the same gating to avoid unexpected files in Toolbox workflows.
+- **Testing**: Add parity tests that run TLC with/without `-tool`, asserting the emitted start/end markers, progress records, and state dumps match legacy output byte-for-byte. For distributed scenarios, ensure both server and worker honor the flag so combined logs remain machine-parseable.
+
+---
+
 ## Set Cardinality Bound Notes (`-maxSetSize`)
 
 - **CLI validation**: `tlatools/org.lamport.tlatools/src/tlc2/TLC.java:858-875` parses `-maxSetSize num`, requires an integer ≥ 1 by delegating to `TLCGlobals.isValidSetSize`, and emits the legacy diagnostics when parsing fails (`Error: An integer for maxSetSize required...`) or the value lies outside `[1, 2^31-1]`. The distributed launcher mirrors the same logic (`tlc2/tool/distributed/TLCApp.java:369-390`). Rust’s CLI will keep the identical constraints and error strings via the shared message catalog.
