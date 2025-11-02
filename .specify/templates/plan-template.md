@@ -31,11 +31,11 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-- **Safety-Critical Correctness**: Identify the unit tests, TLC models, or both that will prove the feature behaves; blockers entered here stop the plan.
-- **Deterministic Reproducibility**: Declare toolchain versions (Java/Ant/Maven) and exact commands required to reproduce results; note any seeds or configuration exports.
-- **Transparent Diagnostics**: Outline logging/output changes and confirm Toolbox parsers and docs will stay in sync.
-- **Scalable Performance Discipline**: Capture the benchmark or load scenario to measure, expected ceiling, and mitigation if regression risk exists.
-- **Open Collaboration & Traceability**: Link to upstream issues/RFCs and confirm `/speckit.spec` will be produced before implementation.
+- **Rust-First TLC Core**: Confirm the work replaces or extends functionality in Rust, identify legacy Java shims to retire, and document any temporary FFI bridges.
+- **Behavioral Parity & Safety Nets**: Define the golden tests, TLC models, or parity harness needed to prove equivalence with the current implementation.
+- **Idiomatic Performance & Concurrency**: Capture concurrency design choices, expected benchmarks, and how performance regressions will be detected.
+- **Evergreen Toolchain & Dependencies**: Record the Rust toolchain version, dependency upgrades, and audit steps (e.g., `cargo audit`, `clippy` gates).
+- **Transparent Migration & Collaboration**: Link to specs/issues, list impacted stakeholders (e.g., Toolbox team), and plan communication for removals or deprecations.
 
 > If any checklist item is unmet, record the remediation plan and pause execution until resolved.
 

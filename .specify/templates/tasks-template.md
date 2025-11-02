@@ -13,11 +13,11 @@ description: "Task list template for feature implementation"
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
 **Constitution Guardrails**:
-- Include tasks for automated verification (tests and/or TLC models) before feature work starts.
-- Add a deterministic reproduction or benchmark task capturing the exact command set.
-- Capture diagnostics/doc updates so Toolbox output and docs stay aligned.
-- Ensure at least one task covers performance measurement or monitoring when behavior can impact throughput or memory.
-- Track references to upstream issue/plan IDs for traceability.
+- Include tasks for automated verification (Rust tests, TLC models, parity harness) before feature work starts.
+- Add deterministic reproduction or benchmark tasks using `cargo test`, `cargo bench`, or dedicated scripts with recorded toolchain versions.
+- Capture diagnostics/doc updates so Toolbox output and docs stay aligned with new Rust logging or CLI behavior.
+- Ensure performance profiling/monitoring tasks exist when behavior can impact throughput or memory versus the Java baseline.
+- Track references to upstream issue/plan IDs and note stakeholder communication or deprecation notices tied to migration steps.
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -58,7 +58,8 @@ description: "Task list template for feature implementation"
 - [ ] T001 Create project structure per implementation plan
 - [ ] T002 Initialize [language] project with [framework] dependencies
 - [ ] T003 [P] Configure linting and formatting tools
-- [ ] T004 Record toolchain versions and deterministic reproduction command in docs/ or README
+- [ ] T004 Install latest stable Rust toolchain and record version/`rust-toolchain.toml`
+- [ ] T005 Create workspace-level `cargo fmt`, `cargo clippy` configurations and document commands
 
 ---
 
@@ -70,12 +71,13 @@ description: "Task list template for feature implementation"
 
 Examples of foundational tasks (adjust based on your project):
 
-- [ ] T005 Setup database schema and migrations framework
-- [ ] T006 [P] Implement authentication/authorization framework
-- [ ] T007 [P] Setup API routing and middleware structure
-- [ ] T008 Create base models/entities that all stories depend on
-- [ ] T009 Configure error handling and logging infrastructure
-- [ ] T010 Establish benchmark harness or reference spec for performance tracking
+- [ ] T006 Setup database schema and migrations framework
+- [ ] T007 [P] Implement authentication/authorization framework
+- [ ] T008 [P] Setup API routing and middleware structure
+- [ ] T009 Create base models/entities that all stories depend on
+- [ ] T010 Configure error handling, `tracing`/logging infrastructure, and telemetry exporters
+- [ ] T011 Establish parity harness comparing Rust outputs with legacy Java (temporary until Java removed)
+- [ ] T012 Establish benchmark harness (`cargo bench`, TLC workload scripts) for performance tracking
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -91,19 +93,21 @@ Examples of foundational tasks (adjust based on your project):
 
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T011 [P] [US1] Contract test for [endpoint] in tests/contract/test_[name].py
-- [ ] T012 [P] [US1] Integration test for [user journey] in tests/integration/test_[name].py
-- [ ] T013 [US1] TLC model/regression covering new state-space behavior in test-model/
+- [ ] T013 [P] [US1] Rust unit/property tests in `crates/[name]/tests/`
+- [ ] T014 [P] [US1] Integration test for [user journey] in `crates/[name]/tests/integration.rs`
+- [ ] T015 [US1] TLC model/regression covering new state-space behavior in `tests/model/`
+- [ ] T016 [US1] Golden parity script comparing Rust output vs Java baseline (remove when Java gone)
 
 ### Implementation for User Story 1
 
-- [ ] T014 [P] [US1] Create [Entity1] model in src/models/[entity1].py
-- [ ] T015 [P] [US1] Create [Entity2] model in src/models/[entity2].py
-- [ ] T016 [US1] Implement [Service] in src/services/[service].py (depends on T014, T015)
-- [ ] T017 [US1] Implement [endpoint/feature] in src/[location]/[file].py
-- [ ] T018 [US1] Add validation and error handling
-- [ ] T019 [US1] Instrument logs/coverage outputs and document tags in docs/
-- [ ] T020 [US1] Update spec/plan references with issue IDs for traceability
+- [ ] T017 [P] [US1] Create Rust module `crates/[name]/src/[entity1].rs`
+- [ ] T018 [P] [US1] Create Rust module `crates/[name]/src/[entity2].rs`
+- [ ] T019 [US1] Implement service layer in `crates/[name]/src/lib.rs` (depends on T017, T018)
+- [ ] T020 [US1] Expose CLI/FFI endpoint in `crates/[name]/src/bin/[tool].rs`
+- [ ] T021 [US1] Add validation/error handling with idiomatic Rust error types (`thiserror`, `anyhow`)
+- [ ] T022 [US1] Instrument `tracing` spans/metrics and document tag schema in docs/
+- [ ] T023 [US1] Update spec/plan references with issue IDs and migration checklist entries
+- [ ] T024 [US1] Run `cargo fmt`, `cargo clippy -- -D warnings`, `cargo test`
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently
 
@@ -117,17 +121,19 @@ Examples of foundational tasks (adjust based on your project):
 
 ### Tests for User Story 2 (OPTIONAL - only if tests requested) ⚠️
 
-- [ ] T021 [P] [US2] Contract test for [endpoint] in tests/contract/test_[name].py
-- [ ] T022 [P] [US2] Integration test for [user journey] in tests/integration/test_[name].py
-- [ ] T023 [US2] TLC regression covering new state-space behavior in test-model/
+- [ ] T025 [P] [US2] Rust contract test in `crates/[name]/tests/contract.rs`
+- [ ] T026 [P] [US2] Integration test for [user journey] in `crates/[name]/tests/integration.rs`
+- [ ] T027 [US2] TLC regression covering new state-space behavior in `tests/model/`
+- [ ] T028 [US2] Extend golden parity harness for migrated functionality
 
 ### Implementation for User Story 2
 
-- [ ] T024 [P] [US2] Create [Entity] model in src/models/[entity].py
-- [ ] T025 [US2] Implement [Service] in src/services/[service].py
-- [ ] T026 [US2] Implement [endpoint/feature] in src/[location]/[file].py
-- [ ] T027 [US2] Integrate with User Story 1 components (if needed)
-- [ ] T028 [US2] Update diagnostics documentation and Toolbox references
+- [ ] T029 [P] [US2] Create Rust module `crates/[name]/src/[entity].rs`
+- [ ] T030 [US2] Implement service/engine logic in `crates/[name]/src/lib.rs`
+- [ ] T031 [US2] Implement CLI/API wiring in `crates/[name]/src/bin/[tool].rs`
+- [ ] T032 [US2] Integrate with User Story 1 components (if needed)
+- [ ] T033 [US2] Update diagnostics documentation, Toolbox parser notes, and migration guide
+- [ ] T034 [US2] Execute `cargo fmt`, `cargo clippy`, `cargo test`, parity harness
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently
 
@@ -141,17 +147,19 @@ Examples of foundational tasks (adjust based on your project):
 
 ### Tests for User Story 3 (OPTIONAL - only if tests requested) ⚠️
 
-- [ ] T029 [P] [US3] Contract test for [endpoint] in tests/contract/test_[name].py
-- [ ] T030 [P] [US3] Integration test for [user journey] in tests/integration/test_[name].py
-- [ ] T031 [US3] TLC regression covering new state-space behavior in test-model/
+- [ ] T035 [P] [US3] Rust contract/property tests in `crates/[name]/tests/`
+- [ ] T036 [P] [US3] Integration test for [user journey] in `crates/[name]/tests/integration.rs`
+- [ ] T037 [US3] TLC regression covering new state-space behavior in `tests/model/`
+- [ ] T038 [US3] Golden parity check or migration validation script
 
 ### Implementation for User Story 3
 
-- [ ] T032 [P] [US3] Create [Entity] model in src/models/[entity].py
-- [ ] T033 [US3] Implement [Service] in src/services/[service].py
-- [ ] T034 [US3] Implement [endpoint/feature] in src/[location]/[file].py
-- [ ] T035 [US3] Benchmark feature with agreed scenario and capture results
-- [ ] T036 [US3] Document release notes entry for new behavior
+- [ ] T039 [P] [US3] Create Rust module `crates/[name]/src/[entity].rs`
+- [ ] T040 [US3] Implement service logic in `crates/[name]/src/lib.rs`
+- [ ] T041 [US3] Implement CLI/API feature in `crates/[name]/src/bin/[tool].rs`
+- [ ] T042 [US3] Benchmark feature with agreed scenario using `cargo bench`/custom harness and capture results
+- [ ] T043 [US3] Update migration status, release notes, and stakeholder comms
+- [ ] T044 [US3] Run `cargo fmt`, `cargo clippy`, `cargo test`, parity harness, and perf benchmarks
 
 **Checkpoint**: All user stories should now be independently functional
 
@@ -171,7 +179,8 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] TXXX [P] Additional unit tests (if requested) in tests/unit/
 - [ ] TXXX Security hardening
 - [ ] TXXX Run quickstart.md validation
-- [ ] TXXX Update reproducibility checklist and confirm constitution guardrails satisfied
+- [ ] TXXX Remove or gate legacy Java/FFI shims slated for deprecation
+- [ ] TXXX Update reproducibility checklist, parity harness status, and constitution guardrails
 
 ---
 

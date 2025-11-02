@@ -116,18 +116,26 @@
 
 ## Verification Strategy *(mandatory)*
 
-- **Unit/Integration Tests**: [List the new or updated test classes and TLC models that will demonstrate safety/liveness]
-- **Reproduction Command**: [`ant -f customBuild.xml ...` or other deterministic script documenting seeds/configuration]
-- **Rollback Plan**: [Criteria to disable feature if verification fails post-merge]
+- **Unit/Integration Tests**: [List new or migrated Rust test modules, property-based suites, and TLC models proving parity]
+- **Golden Parity Harness**: [`cargo test -p <crate>` / custom harness comparing Rust vs Java until Java is removed]
+- **Reproduction Command**: [`cargo test`, `cargo nextest`, TLC model commands, plus any seeds/config dumps]
+- **Rollback Plan**: [Criteria to revert to Java implementation or feature flag if parity fails post-merge]
 
 ## Diagnostics & Documentation *(mandatory)*
 
-- **Logging/Output Changes**: [Describe new tags, structured logs, or console output and confirm Toolbox parsers impacted]
-- **User-Facing Docs**: [Files in `docs/` or `DEVELOPING.md` that must be updated]
-- **Support Guidance**: [Notes for triage teams on interpreting new diagnostics]
+- **Logging/Output Changes**: [Describe new Rust logging (e.g., `tracing` spans) and confirm Toolbox parsers stay aligned]
+- **User-Facing Docs**: [Files in `docs/`, migration notes, Toolbox help that explain new Rust behavior]
+- **Support Guidance**: [Notes for support teams on interpreting Rust diagnostics and residual Java shims]
 
 ## Performance & Scaling *(mandatory)*
 
-- **Benchmark Scenario**: [Which workload or dataset will be used to measure impact (e.g., `test-benchmark` target)]
-- **Target Budget**: [Specific throughput/memory goals, e.g., "Maintain <=5% memory growth at 16 workers"]
-- **Monitoring Plan**: [How regressions will be detected post-release, e.g., nightly runs, telemetry]
+- **Benchmark Scenario**: [Which Rust benchmarks or TLC workloads (`cargo bench`, integration harness) measure impact]
+- **Target Budget**: [Specific throughput/memory goals, e.g., "Match or improve Java baseline by 5% at 16 workers"]
+- **Monitoring Plan**: [How regressions will be detected post-release, e.g., nightly parity runs, perf dashboards]
+
+## Migration & Collaboration *(mandatory)*
+
+- **Java Decommission Plan**: [Outline steps to disable/remove legacy Java code once parity is proven]
+- **Stakeholder Updates**: [Communication touchpoints for Toolbox, community, release notes]
+- **Interop/FFI Notes**: [Document temporary bridges, ownership rules, and retirement dates]
+- **Risk Register**: [List migration risks (toolchain, dependency updates) with mitigations]
