@@ -43,7 +43,7 @@ Status legend:
 | `-teSpecOutDir dir` | Override TE spec output directory. | Accept path, ensure relative semantics. | ✅ |
 | `-gzip` | Toggle gzip compression for value IO. | Mirror TLC’s global `useGZIP` switch (ValueInput/OutputStream), ensure checkpoints/state queues honor it, emit same CLI diagnostics, and document resume requirements. | ✅ Design captured in Value Stream Compression Notes. |
 | `-h` | Print usage. | CLI auto-provides help; ensure verbose help matches legacy layout for parity tests. | ✅ |
-| `-maxSetSize num` | Bound enumerated set size (default 1,000,000). | Cap in evaluator; reuse config. | 🟡 Need to port `SetEnumValue` semantics. |
+| `-maxSetSize num` | Bound enumerated set size (default 1,000,000). | Mirror `TLCGlobals.setBound`; enforce CLI validation, ensure Value/State vectors honor the cap, and propagate identical error messages when limits are hit. | ✅ Design captured in Set Cardinality Bound Notes. |
 | `-nowarning` | Suppress warnings. | Map to logging filter. | ✅ |
 | `-terse` | Collapse `Print` output expansion. | Provide same toggle in trace printer. | ✅ |
 | `-tool` | Emit message codes for Toolbox integration; auto-enabled with SpecTE. | Provide message catalog compatibility and ensure codes match legacy `MP`. | 🟡 Need mapping of message IDs → codes. |
@@ -190,6 +190,17 @@ Additional behaviors:
 - **Resume compatibility**: Because the checkpoint readers look at `TLCGlobals.useGZIP` when opening streams (`new ValueInputStream(filename)`), users must supply `-gzip` on resumes or distributed workers if the checkpoint was written with compression. Rust will enforce the same contract and warn when the detected manifest indicates gzip but the flag is missing, guiding users to re-run with the right toggle.
 - **I/O stack parity**: Compression happens through the same buffering path (`util.FileUtil.newBdFIS/newBdFOS`), so we need faithful ports of buffering order, flush semantics, and error messages (`EC.SYSTEM_ERROR_READING_STATES`). We’ll validate by round-tripping sample states and ensuring byte-for-byte equality with the Java encoding (after decompression).
 - **Testing**: Integration tests will cover both compressed and uncompressed runs: write a state queue, checkpoint, recover, and resume. File extension and size heuristics (compressed files typically end in `.d1`, `.queue.chkpt`) should match legacy naming. Additional tests will confirm distributed workers honour the flag and that manifest metadata records whether compression was used.
+
+---
+
+## Set Cardinality Bound Notes (`-maxSetSize`)
+
+- **CLI validation**: `tlatools/org.lamport.tlatools/src/tlc2/TLC.java:858-875` parses `-maxSetSize num`, requires an integer ≥ 1 by delegating to `TLCGlobals.isValidSetSize`, and emits the legacy diagnostics when parsing fails (`Error: An integer for maxSetSize required...`) or the value lies outside `[1, 2^31-1]`. The distributed launcher mirrors the same logic (`tlc2/tool/distributed/TLCApp.java:369-390`). Rust’s CLI will keep the identical constraints and error strings via the shared message catalog.
+- **Global bound semantics**: On success the CLI assigns `TLCGlobals.setBound` (default `1_000_000`), which the evaluator and state engine consult to size dynamic arrays. The bound is process-global: it must be supplied on every resume/distributed worker launch to avoid mismatches.
+- **Set enumeration guardrails**: `ValueVec.ensureCapacity` clamps growth to `TLCGlobals.setBound` and throws `WrongInvocationException("Attempted to construct a set with too many elements (>" + setBound + ").")` when exceeded (`tlatools/.../ValueVec.java:86-107`). Any operation that materializes a `SetEnumValue` (subset generation, UNION, powersets, CHOOSE over explicit sets) routes through `ValueVec`, so we must preserve the same exception type and wording for parity.
+- **State explosion guardrails**: Successor enumeration uses `StateVec.grow`, which aborts with `Assert.fail(EC.TLC_TOO_MNY_POSSIBLE_STATES)` once the next-state buffer would exceed `setBound` (`tlatools/.../StateVec.java:61-79`). The emitted message is “Too many possible next states for the last state in the trace.” Rust’s search engine will raise the same message code when the cap is hit.
+- **Interaction with other limits**: `-maxSetSize` does not alter the pretty-printer bound `TLCGlobals.enumBound` (used solely for trace formatting) and coexists with coverage/postcondition evaluators that rely on `SetEnumValue`. We’ll document this distinction so users understand reducing `-maxSetSize` only constrains enumeration, not printing.
+- **Testing**: Java regression coverage includes CLI parsing (`tlatools/.../TLCTest.java`) and a model (`TraceWithLargeSetOfInitialStatesTest`) exercising small bounds. Rust parity tests will mirror these scenarios: validate CLI error messages, run a model that trips the ValueVec guard, and confirm engine aborts with `EC.TLC_TOO_MNY_POSSIBLE_STATES` when successor counts exceed the bound.
 
 ---
 
