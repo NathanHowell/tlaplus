@@ -5,6 +5,24 @@
 **Status**: Draft  
 **Input**: User description: "we are going to create a new command line tool named `tlc` that supports all of the existing `tlc` model checker features, as well as any existing issues here https://github.com/tlaplus/tlaplus/issues - it must be multicore, pass all existing tests (we will either use existing pluscal/tla+ models directly, or port any java unit tests to rust). it also must be faster than the Java equivalent. it must have a native progress bar that shows how much of the state space has been explored. while"
 
+## Clarifications
+
+### Session 2025-11-02
+
+- Q: How should the new `tlc` handle mid-run interruptions when checkpoints exist? → A: Match legacy TLC by persisting checkpoints in a Rust-native format (serde for compact states; embedded DB or serde for larger ones) and requiring an explicit resume flag or command.
+- Q: What checkpoint size envelope should the new Rust-native storage support? → A: Plan for routine 10–100 GB checkpoints.
+- Q: Which runtime artifacts must be captured inside each checkpoint? → A: Persist the frontier/backlog, visited metadata, worker RNG seeds, and a hash of the spec/config inputs.
+- Q: Are embedded databases acceptable for checkpoint persistence when serde alone is insufficient? → A: Yes—bundle a lightweight embedded DB like SQLite or sled with the binary when needed.
+- Q: What state identity fingerprint should the new engine standardize on? → A: Use a stable 128-bit hash/fingerprint for every explored state.
+- Q: How should distributed/remote execution be scoped for the rewrite? → A: Limit GA to single-host multi-core while designing clear extension seams for future Kubernetes/batch schedulers.
+- Q: How should the progress indicator behave when stdout is not a TTY? → A: Emit structured JSON progress events instead of the interactive bar.
+- Q: What observability stack should the telemetry integrate with? → A: Instrument runs with OpenTelemetry spans via the `tracing` crate and attach a tracing subscriber for console output when applicable.
+- Q: What should be the default scope and redaction posture for telemetry exports? → A: Default to local-only spans, remove spec/module identifiers, and require an explicit flag or env var before enabling remote export; console JSON output remains available.
+- Q: What default styling should the progress indicator use on TTY outputs? → A: Default to ANSI-colored output with a `--no-color` opt-out flag.
+- Q: How should non-TTY progress events be structured? → A: Emit newline-delimited JSON objects (NDJSON) so streaming consumers can parse incremental updates.
+- Q: What compatibility guarantee should checkpoint storage offer across releases? → A: No compatibility guarantees; mismatched versions must discard checkpoints and start fresh.
+- Q: What should the default worker count be when auto-detecting cores? → A: Default to `max(logical cores − 1, 1)` to reserve headroom.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Preserve TLC Parity (Priority: P1)
@@ -58,6 +76,7 @@ Infrastructure engineers can provision multi-core hardware and configure the new
 - The tool must degrade gracefully when worker threads encounter divergent performance (e.g., heterogeneous cores or throttled containers) without stalling the run.
 - Runs interrupted mid-exploration (user cancel, node reboot) must provide actionable restart guidance and avoid corrupting checkpoints.
 - Existing specification files containing legacy TLC quirks (e.g., unusual Unicode, deprecated options) must be parsed and reported consistently.
+- On restart after an interruption, the tool MUST keep legacy behavior by persisting checkpoint state in the Rust-native format and requiring the user to explicitly resume using the dedicated CLI flag or command.
 
 ## Requirements *(mandatory)*
 
@@ -65,24 +84,31 @@ Infrastructure engineers can provision multi-core hardware and configure the new
 
 - **FR-001**: The new `tlc` command MUST accept the same invocation syntax, configuration files, and environment variables currently supported by legacy TLC.
 - **FR-002**: The tool MUST load and execute existing PlusCal- and TLA+-based test suites without requiring file or model changes.
-- **FR-003**: The tool MUST expose built-in multi-core execution with automatic worker detection and user overrides for core count and memory usage.
-- **FR-004**: The command-line output MUST include a native progress indicator that displays explored states, estimated completion percentage, elapsed time, and current throughput.
+- **FR-003**: The tool MUST expose built-in multi-core execution with automatic worker detection (defaulting to `max(logical cores − 1, 1)` workers) and user overrides for core count and memory usage.
+- **FR-004**: The command-line output MUST include a native progress indicator that displays explored states, estimated completion percentage, elapsed time, and current throughput when attached to a TTY, default to ANSI-colored styling while honoring a `--no-color` flag that falls back to monochrome, and MUST emit newline-delimited JSON (NDJSON) progress events with equivalent fields when stdout is non-interactive.
 - **FR-005**: For every analysis outcome (success, counterexample, liveness violation, deadlock), the tool MUST emit diagnostics, coverage summaries, and error traces that conform to current TLC semantics.
 - **FR-006**: The tool MUST pass all existing automated TLC regression suites, including nightly PlusCal conversions, parser tests, and toolbox integration checks.
 - **FR-007**: Identified high-impact TLC backlog issues (correctness gaps, performance defects, CLI usability blockers) MUST be resolved or explicitly retired before the tool is released.
 - **FR-008**: The tool MUST collect and report run-level metrics (runtime, states-per-second, memory footprint) to enable side-by-side comparisons with the legacy implementation.
+- **FR-009**: Checkpoint persistence MUST use a Rust-native format, preferring serde for compact state payloads and evaluating an embedded local database when state volume or performance constraints exceed serde-only capabilities; Java checkpoint blobs MUST NOT be reused. Solutions MUST comfortably handle checkpoint files in the 10–100 GB range, capture the exploration frontier/backlog, visited-set metadata, worker RNG seeds, and a hash of spec/config inputs, and MAY bundle lightweight embedded databases (e.g., SQLite, sled) when serde alone is insufficient. Cross-version compatibility is NOT guaranteed; mismatched binary versions SHOULD refuse to resume and require fresh runs.
+- **FR-010**: State identity MUST rely on a deterministic 128-bit fingerprint across runs and platforms, ensuring collision risk remains negligible while keeping storage efficient.
+- **FR-011**: Initial GA scope MUST restrict execution to single-host multi-core operation; distributed or remote worker orchestration is out of scope but the architecture MUST expose extension seams (e.g., scheduler interfaces) so future Kubernetes or batch orchestrators can coordinate workers without invasive rewrites.
+- **FR-012**: Runtime telemetry MUST emit OpenTelemetry-compliant spans using the Rust `tracing` crate, default the subscriber to local-only emission with spec/module identifiers stripped, render structured JSON when writing to the console sink, and require an explicit CLI flag or environment variable before enabling any remote exporter.
 
 ### Key Entities *(include if feature involves data)*
 
 - **Specification Package**: A bundle containing TLA+ modules, PlusCal translations, configuration files, and parameter overrides required to execute a model check.
 - **Exploration Run Record**: The structured result of a `tlc` execution, including invariants checked, explored states, counterexamples, and performance metrics.
-- **Progress Telemetry**: Real-time data points describing percentage complete, throughput, worker utilization, and estimated completion time shown in the CLI.
+- **Progress Telemetry**: Real-time data describing percentage complete, throughput, worker utilization, and estimated completion time, surfaced as an interactive TTY bar or as newline-delimited JSON (NDJSON) events on non-TTY outputs.
+- **Checkpoint Snapshot**: A persisted runtime bundle storing the exploration frontier/backlog, visited-state metadata, worker RNG seeds, and an integrity hash derived from the specification and configuration inputs. Serialization uses serde for compact payloads and may bundle a lightweight embedded database (e.g., SQLite, sled) for larger checkpoint data.
+- **State Fingerprint**: A deterministic 128-bit hash computed from each canonicalized state representation, reused across runs to minimize collisions and ensure consistent resume behavior.
 
 ### Assumptions
 
 - Product leadership will curate the definitive list of backlog issues considered in-scope for this release and sign off when all are resolved or retired.
 - Performance comparisons will use an agreed-upon set of representative specifications and hardware profiles that mirror current TLC adoption.
 - Deployment planning assumes the organization is ready to switch automation, CI pipelines, and end-user workflows directly to the new binary once release sign-off occurs.
+- Future distributed execution will be delivered via external schedulers (e.g., Kubernetes gang scheduling) that plug into defined extension seams; no coordinator for cross-host workers ships in this release.
 
 ## Success Criteria *(mandatory)*
 
@@ -102,7 +128,7 @@ Infrastructure engineers can provision multi-core hardware and configure the new
 
 ## Diagnostics & Documentation *(mandatory)*
 
-- **Logging/Output Changes**: Document any new telemetry lines, progress indicators, or exit codes, and verify Toolbox and automation scripts remain compatible with revised output.
+- **Logging/Output Changes**: Document any new telemetry lines, progress indicators (interactive bar and JSON mode), or exit codes, and verify Toolbox and automation scripts remain compatible with revised output.
 - **User-Facing Docs**: Update command reference, getting-started guides, and migration notes to explain new defaults, multi-core controls, and progress visualization.
 - **Support Guidance**: Provide troubleshooting playbooks for common run failures, performance tuning tips, and guidance for teams migrating their automation and scripts to the new binary.
 
