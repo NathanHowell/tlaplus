@@ -33,7 +33,7 @@ Status legend:
 | `-difftrace` | Print only differences between successive states. | Mirror legacy trace printer behavior in Rust `trace` module. | ✅ |
 | `-dumpTrace format file` | Dump error trace as TLA or JSON to file; supports multiple invocations. | Implement writer supporting `tla`/`json` (pluggable). Ensure file path relative to spec dir. | ✅ |
 | `-inv expr` | Evaluate additional invariant expression. | CLI maps to `RunConfiguration.extra_invariants`; reused in engine. | ✅ |
-| `-invlevel n` | Stop after finding a trace of length `n` unless `-continue`. | Implement via `trace::LevelInvariant`. | 🟡 Need semantics confirmation for interplay with parity harness. |
+| `-invlevel n` | Stop after finding a trace of length `n` unless `-continue`. | Synthesize runtime invariant `TLCGet("level") < n` via spec augmentation (auto-extends `TLC`/`Naturals`), reuse legacy CLI parsing + message codes, and propagate continuation semantics/tracing identical to Java. | ✅ Level cap parity detailed below. |
 | `-debug` | Enable verbose internal diagnostics. | Map to `tracing` level + additional debug assertions. | ✅ |
 | `-dump [format] file` | Dump reachable states; optional DOT with modifiers (`colorize`, `actionlabels`, `constrained`). | Provide state export module replicating textual + DOT outputs and modifiers. | 🟡 DOT emission + modifier handling requires design. |
 | `-fp N` | Pick specific irreducible polynomial for fingerprints. | Provide deterministic mapping in fingerprint engine; ensure compatibility with `FP64`. | 🟡 Need to port polynomial table. |
@@ -134,6 +134,17 @@ Additional behaviors:
 - **Constraints**: Operators must be zero-arity and constant-level. Config validation rejects missing or non-operator references (`EC.TLC_CONFIG_SPECIFIED_NOT_DEFINED`, `EC.TLC_CONFIG_ID_REQUIRES_NO_ARG`). CLI syntax prevents dotted names to avoid parameterized instantiations; extending modules via `ModulePointer.getRelatives().addExtendee` mirrors Java behavior when ported.
 - **Counterexample helpers**: `TLCExt!CounterExample` exposes the trace as a record of `state`/`action` tuples, and `CounterExample.toTrace()` yields a tuple for TE specs. Any postcondition that depends on the violation context (e.g., writing JSON) must import `TLCExt` and will continue to work when `checkPostConditionWithCounterExample` supplies the value.
 - **Concurrency & retries**: With `-continue`, every discovered violation triggers the postcondition check (with its corresponding counterexample record). Rust should run postconditions after each failing behavior and after the run finishes to maintain parity.
+
+---
+
+## Level Cap (`-invlevel`) Notes
+
+- **CLI parsing & diagnostics**: `tlatools/org.lamport.tlatools/src/tlc2/TLC.java:514-533` parses the flag, requires the next argument to be an integer, and reuses the generic `Error: An integer for -invlevel required...` diagnostic when parsing fails. Negative or zero values are accepted and simply make the generated invariant fail earlier. Rust CLI will reuse this validation path and surface the same error wording/message code.
+- **Generated invariant shape**: The Java CLI appends a `RuntimeInvariantTemplate` that instantiates `TLC` and `Naturals`, emitting `LET _T == INSTANCE TLC _N == INSTANCE Naturals IN _N!<(_T!TLCGet("level"), n)` (`TLC.java:526-533`). This ensures the invariant name is the synthesized `__DebuggerExpr__k` operator produced by `TLCDebuggerExpression.process` and keeps Toolbox-visible names identical. We will synthesize the same expression string (with leading underscores) to preserve naming and semantics.
+- **Module extension plumbing**: `ParameterizedSpecObj.findOrCreateParsedUnit` auto-extends any modules declared on the invariant template (`ParameterizedSpecObj.java:70-104`), so the inserted invariant can resolve `TLCGet`/`<`. The Rust spec builder must register the same extendees before elaboration; otherwise the parser would reject the generated expression.
+- **Level semantics**: State levels start at 1 for initial states and increment when successors adopt their predecessor’s level + 1 (`TLCState.java:24-88`, `setPredecessor`). `TLCGet("level")` returns 0 inside constant/init contexts and the state’s level elsewhere (`TLCGetSet.java:360-382`). This matches the legacy expectation that a violation at level `n` yields a trace of length `n`.
+- **Evaluation & continuation behavior**: Invariant checks only run for unseen states; violations call `doNextSetErr` unless `TLCGlobals.continuation` is true, in which case TLC logs the error but continues exploration (`ModelChecker.java:399-508`). Rust must wire the synthesized invariant through the standard invariant pipeline so `-continue` keeps working the same way.
+- **Reporting & exit status**: The failure path emits `EC.TLC_INVARIANT_VIOLATED_BEHAVIOR` with the generated name (`MP.java:520-523`) and the final summary still prints `EC.TLC_SEARCH_DEPTH` using the trace level (`ModelChecker.java:874-885`). Regression tests such as `InvParameterizedATest` demonstrate the expected exit code (`ExitStatus.VIOLATION_SAFETY`) and depth reporting. Our implementation will reuse these message codes and surface telemetry through the same reporting hooks.
 
 ---
 
