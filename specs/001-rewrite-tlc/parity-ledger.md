@@ -19,7 +19,7 @@ Status legend:
 
 | Flag / Positional | Legacy Behavior | Rust Parity Strategy | Status / Risk |
 | --- | --- | --- | --- |
-| `SPEC` positional | Path (or jar resource) to primary module. Supports JAR-bundled specs via `ModelInJar`. | `tlc` crate `cli::run` accepts path or `jar:` loader; reuse `ModelInJar` concept by embedding parser capable of jar extraction. | 🟡 Need design for jar packaging & resolver parity. |
+| `SPEC` positional | Path (or jar resource) to primary module. Supports JAR-bundled specs via `ModelInJar`. | Introduce `SpecSource` abstraction: handle filesystem specs, `.jar`/`.zip` archives, and embedded bundles. Archive loader targets `/model/` entries, asserts presence of `MC.tla` (plus optional `MC.cfg`, `generated.properties`), materializes contents into an isolated temp workspace, and pushes that directory to the front of the module search path so downstream components see the same layout that `InJarFilenameToStream` provided. CLI keeps legacy UX—omitting the positional spec triggers embedded bundle lookup, supplying a `.jar`/`.zip` path selects the archive source, and `--spec-root` overrides the bundle subdirectory when migration artifacts diverge. Distributed runners (`tlc server`, resume flows) reuse the same loader. | ✅ Bundle format + resolver parity locked; bundler tooling tracked separately. |
 | `-config file` | Load `.cfg` or inline config; defaults to `SPEC.cfg`. | CLI flag maps to `RunConfiguration.config_path`; parser reuses same grammar (`ModelConfig` port). | 🟡 Config parser rewrite required; tracked under config parity epic. |
 | `-workers num|auto` | Set worker threads (default 1; `auto` uses logical cores). | Implement in `engine::scheduler` with `rayon` pool sizing & `auto` policy; enforce `-debugger` forcing 1 worker. | ✅ |
 | `-checkpoint minutes` | Minutes between background checkpoints (default 30). | Scheduler triggers checkpoints via `sled` persistence; support minute interval semantics and `0` = disabled. | 🟡 Need policy for interval rounding, initial checkpoint timing. |
@@ -97,9 +97,18 @@ Additional behaviors:
 - **Error trace handling**: Provide difftrace, TLA listing, JSON, TE spec generation, `-continue`, `-terse`, `-view` interplay; ensure counterexample format matches `Messages` catalog for parity harness. Status: ✅ (design accounted for).
 - **Toolbox integration**: `-tool` message codes, `SpecTE` flows, debug adapter, `ModelInJar` packaging. Need to audit Toolbox expectations (message codes, output directory layout). Status: 🟡.
 - **Debugger (DAP)**: Java TLC supports DAP with `-debugger`. Need to port or provide compatibility layer; rust version must speak same protocol (TLC-specific commands). Status: 🟡 (requires dedicated epic).
-- **Spec-in-JAR**: Running models packaged inside `tla` jar resources via `ModelInJar` loader (`TLC.java:1102` onwards). Need equivalent ability or migration guidance. Status: 🟡.
+- **Spec-in-JAR**: Running models packaged inside `tla` jar resources via `ModelInJar` loader (`TLC.java:1102` onwards). Status: ✅ — `SpecSource::Archive` opens `.jar`/`.zip` bundles, rehydrates `/model` contents into temp dirs, and reuses the unified resolver for CLI/distributed flows.
 - **Trace Explorer (SpecTE)**: Automatic generation of trace explorer specs on failure, output location control, and integration with Toolbox. Ensure parity in file naming and module contents. Status: 🟡.
 - **Email/notification hooks**: Legacy had `MailSender` integration for `-tool` mode (observed via imports). Determine if still used; if so, replicate or deprecate with stakeholder approval. Status: 🔴 needs clarification.
+
+---
+
+## Spec Bundle Parity Notes
+
+- **Legacy bundle layout**: Toolbox/cloud jobs repackage `tla2tools.jar` and drop model artifacts under `/model/`—at minimum `MC.tla`, often `MC.cfg`, all dependent `.tla` modules, plus optional `generated.properties` used to seed JVM system properties (mail targets, cloud metadata). TLC auto-detects this when the positional `SPEC` is omitted, toggles `Tool` mode, disables checkpoints, and switches the resolver to `InJarFilenameToStream` so parser/evaluator reads from the jar before falling back to the filesystem or standard library.
+- **Rust parity plan**: `SpecSource::Archive` (used by CLI + distributed entry points) opens `.jar`/`.zip` archives via `zip` crate, filters contents under `/model/`, validates that `MC.tla` exists, and extracts all `/model/*.tla`/`*.cfg` (plus `generated.properties`) into a dedicated temp directory. That directory is placed at the front of the module search path, mirroring legacy resolver ordering, while standard modules remain untouched. `generated.properties` is parsed into a structured map; consumers can ignore it by default (MailSender retirement) but tooling has the metadata if reintroduced.
+- **Invocation flow**: `tlc` without a positional spec attempts to load an embedded bundle (for future self-contained artifacts). Providing a `.jar`/`.zip` path binds `SpecSource::Archive`; other inputs are treated as filesystem modules. Optional `--spec-root` flag defaults to `/model/` but permits alternative roots for migration/experiments. `SpecSource` is shared with `tlc server`/resumption so distributed/cloud workflows keep a single artifact story.
+- **Risk & follow-up**: Implementation requires bundler CLI tooling (e.g., `tlc bundle create`) and regression tests that diff extracted archives against known-good legacy snapshots. Track these in the tooling epic; resolver parity itself is now designed.
 
 ---
 
@@ -116,6 +125,9 @@ Additional behaviors:
 
 1. Toolbox message code mapping: gather authoritative list to ensure `-tool` parity.
 2. Mail/notification support: legacy `MailSender` can be eliminated per maintainers; update plan to drop feature.
+3. Trace Explorer defaults: verify generating SpecTE artifacts by default (unless `-noGenerateSpecTE`) still matches Toolbox expectations.
+4. Symmetry reduction + fingerprint canonicalization: identify design owners and schedule deep dive.
+5. Debugger protocol (DAP): determine contract with VSCode extension and confirm compatibility expectations.
 
 ---
 
@@ -123,6 +135,3 @@ Additional behaviors:
 
 - `_PERIODIC`: Used to encode long-running assumptions by aborting when the named operator evaluates to `FALSE` during periodic work. The Rust TLC CLI will not implement this hook; migration guidance must explain how to replicate equivalent behavior with external supervisors (e.g., monitoring progress events and invoking `SIGINT`). Track documentation update in `docs/migration/tlc-rust.md`.
 - `_RL_REWARD`: Drives reinforcement-learning simulation workers. The Rust rewrite drops RL-guided simulation, so `_RL_REWARD` (and related `Simulator.rl.*` properties) will be marked as removed. Add release notes and suggest external fuzzing frameworks if needed.
-4. Tee spec generation defaults: ensure default behavior (generate unless `-noGenerateSpecTE`) aligns with Toolbox expectations.
-5. Symmetry reduction + fingerprint canonicalization: identify owners and plan for design deep dive.
-6. DAP debugger: determine contract with VSCode extension and expected protocol compliance.
