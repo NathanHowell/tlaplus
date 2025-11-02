@@ -41,7 +41,7 @@ Status legend:
 | `-fpmem num` | Fraction of physical memory for fingerprint storage. | Preserve ratio/absolute parsing, reuse TLCRuntime sizing heuristics (min/max caps, heap/off-heap split), emit legacy deprecation warning for absolute values, and persist the budget for checkpoints/distributed workers. | ✅ Design captured in Fingerprint Memory Parity Notes. |
 | `-noGenerateSpecTE` | Disable Trace Explorer spec generation on failure. | Preserve TE spec generation and allow opt-out flag. | ✅ |
 | `-teSpecOutDir dir` | Override TE spec output directory. | Accept path, ensure relative semantics. | ✅ |
-| `-gzip` | Toggle gzip compression for value IO. | Provide equivalent compression toggle on checkpoint/value streams. | 🟡 Determine defaults & interplay with `zstd`. |
+| `-gzip` | Toggle gzip compression for value IO. | Mirror TLC’s global `useGZIP` switch (ValueInput/OutputStream), ensure checkpoints/state queues honor it, emit same CLI diagnostics, and document resume requirements. | ✅ Design captured in Value Stream Compression Notes. |
 | `-h` | Print usage. | CLI auto-provides help; ensure verbose help matches legacy layout for parity tests. | ✅ |
 | `-maxSetSize num` | Bound enumerated set size (default 1,000,000). | Cap in evaluator; reuse config. | 🟡 Need to port `SetEnumValue` semantics. |
 | `-nowarning` | Suppress warnings. | Map to logging filter. | ✅ |
@@ -179,6 +179,17 @@ Additional behaviors:
 - **Distributed & resume parity**: The distributed server passes the configured ratio/memory to workers through serialized `FPSetConfiguration` instances (`FPSetManager` construction); checkpoints persist the same structure and `TLCRuntime` recomputes the absolute byte target on restore. The Rust runtime will encode both the input value (ratio vs absolute) and the resolved byte budget in the manifest so restarts and remote workers replay the identical sizing.
 - **VM flag recommendations**: Legacy tooling surfaces JVM flag guidance via `FPSetFactory.getVMArguments` if explicit FPSet implementations are selected. We’ll preserve that helper (or equivalent documentation) so operators know to adjust `-Xmx` or `-XX:MaxDirectMemorySize` alongside `-fpmem` for large models.
 - **Testing strategy**: Unit tests will cover representative inputs—fractions (0, 0.25, 0.9), absolute bytes (16 MB, > heap), and invalid negatives—checking the resulting byte count matches Java for both heap and off-heap FPSets. Integration tests will exercise distributed runs to ensure workers receive identical budgets, and resume tests will confirm checkpointed runs honour the stored memory ratio.
+
+---
+
+## Value Stream Compression Notes (`-gzip`)
+
+- **CLI semantics**: `tlatools/org.lamport.tlatools/src/tlc2/TLC.java:476-480` toggles `TLCGlobals.useGZIP` when `-gzip` is present (default `false`). The distributed launcher applies the same flip so server and workers share one setting. No arguments are accepted; repeated flags are idempotent.
+- **Scope of compression**: `TLCGlobals.useGZIP` feeds every `ValueOutputStream`/`ValueInputStream` constructor invoked through TLC core classes, including `DiskStateQueue` checkpointing (`tlatools/org.lamport.tlatools/src/tlc2/tool/queue/DiskStateQueue.java:172`), `MemStateQueue` spill files (`tlatools/org.lamport.tlatools/src/tlc2/tool/queue/MemStateQueue.java:82`), `StatePoolReader` reloads (`tlatools/org.lamport.tlatools/src/tlc2/util/StatePoolReader.java:69`), and trace serialization (`tlatools/org.lamport.tlatools/src/tlc2/tool/TLCTrace.java:555`). With `-gzip`, all serialized states, fingerprints, and queue buffers are written as gzip streams via `java.util.zip.GZIPOutputStream`; without it they remain raw binary.
+- **Mixed flows & hard-coded cases**: Some utilities (e.g., `TLCTrace.writeBehavior`) explicitly request compression irrespective of the flag by passing `true` to `ValueOutputStream`; others (like `DiskIntStack`) always use plain output. Our Rust design will mirror these call-site choices so ad-hoc tooling sees identical file formats.
+- **Resume compatibility**: Because the checkpoint readers look at `TLCGlobals.useGZIP` when opening streams (`new ValueInputStream(filename)`), users must supply `-gzip` on resumes or distributed workers if the checkpoint was written with compression. Rust will enforce the same contract and warn when the detected manifest indicates gzip but the flag is missing, guiding users to re-run with the right toggle.
+- **I/O stack parity**: Compression happens through the same buffering path (`util.FileUtil.newBdFIS/newBdFOS`), so we need faithful ports of buffering order, flush semantics, and error messages (`EC.SYSTEM_ERROR_READING_STATES`). We’ll validate by round-tripping sample states and ensuring byte-for-byte equality with the Java encoding (after decompression).
+- **Testing**: Integration tests will cover both compressed and uncompressed runs: write a state queue, checkpoint, recover, and resume. File extension and size heuristics (compressed files typically end in `.d1`, `.queue.chkpt`) should match legacy naming. Additional tests will confirm distributed workers honour the flag and that manifest metadata records whether compression was used.
 
 ---
 
