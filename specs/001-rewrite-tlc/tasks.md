@@ -53,10 +53,12 @@ description: "Task list for Native TLC Command Line Tool"
 - [ ] T015 [P] Stub parity runner scaffolding that captures diff artifacts in `tests/golden/src/parity_runner.rs`
 - [ ] T016 [P] Scaffold property-based engine invariants using `proptest` in `tests/unit/engine_prop.rs`
 - [ ] T017 Publish deterministic verification script chaining fmt/clippy/tests/audit/parity/perf in `scripts/dev/check-all.sh`
+- [ ] T065 [P] Implement large-checkpoint soak generator and resume tests covering 10 GB and 100 GB scenarios in `tests/integration/checkpoint_soak.rs`
+- [ ] T066 Integrate checkpoint soak runs into `scripts/dev/check-all.sh` and CI gating so failures block merges
 - [ ] T018 Document shared development workflow and constitution guardrails in `docs/migration/tlc-rust.md`
 - [ ] T019 Curate TLC backlog scope, assign owners, and define remediation status taxonomy in `specs/001-rewrite-tlc/checklists/backlog.csv`
-- [ ] T051 Capture backlog remediation plan (status codes, exit criteria, reviewer checklist) in `specs/001-rewrite-tlc/checklists/backlog.csv`
-- [ ] T052 Record maintainer sign-off for resolved or retired backlog items and archive decisions in `specs/001-rewrite-tlc/parity-ledger.md`
+- [ ] T051 Document backlog remediation workflow (status codes, exit criteria, reviewer checklist) in `specs/001-rewrite-tlc/checklists/README.md`
+- [ ] T052 Record maintainer sign-off for resolved or retired backlog items directly in `specs/001-rewrite-tlc/checklists/backlog.csv`
 
 **Checkpoint**: Foundation ready — user story implementation can now begin in parallel.
 
@@ -72,6 +74,8 @@ description: "Task list for Native TLC Command Line Tool"
 - [ ] T020 [P] [US1] Extend parity runner to invoke new TLC binary and generate diff reports in `tests/golden/src/parity_runner.rs`
 - [ ] T021 [US1] Curate regression manifest listing parity specs and legacy expectations in `tests/golden/fixtures/manifest.toml`
 - [ ] T022 [US1] Integrate property-based engine invariants into CI gating in `tests/golden/src/parity_runner.rs`
+- [ ] T067 [US1] Add regression fixtures that exercise legacy Unicode inputs and deprecated CLI flags in `tests/golden/fixtures/legacy/`
+- [ ] T068 [US1] Validate ingestion pipeline behavior for legacy quirks in `tests/golden/src/parity_runner.rs`
 
 ### Implementation Tasks
 
@@ -121,6 +125,8 @@ description: "Task list for Native TLC Command Line Tool"
 
 - [ ] T036 [US3] Add multi-core scaling integration scenario covering throughput deltas in `tests/integration/engine_scaling.rs`
 - [ ] T037 [P] [US3] Add benchmarking harness that records scaling metrics in `benches/engine_scaling.rs`
+- [ ] T069 [US3] Add skewed workload integration test enforcing ≥70% aggregate worker utilization in `tests/integration/worker_skew.rs`
+- [ ] T070 [US3] Enforce ≥20% throughput improvement and ≤5% peak-memory ceiling via benchmark gate in `benches/engine_scaling.rs`
 
 ### Implementation Tasks
 
@@ -128,7 +134,7 @@ description: "Task list for Native TLC Command Line Tool"
 - [ ] T039 [P] [US3] Implement crossbeam-backed work queues and throttling in `src/engine/src/work_queue.rs`
 - [ ] T040 [US3] Integrate worker configuration, memory guards, and defaults in `src/engine/src/config.rs`
 - [ ] T041 [US3] Wire CLI worker/memory flags and defaults into command parsing in `src/cli/src/commands.rs`
-- [ ] T042 [P] [US3] Emit worker utilization telemetry for observability in `src/telemetry/src/workers.rs`
+- [ ] T042 [P] [US3] Emit worker utilization telemetry with configurable 70% alert thresholds in `src/telemetry/src/workers.rs`
 - [ ] T057 [US3] Document scheduler extension seams and handoff contracts in `docs/migration/tlc-scheduler-extension.md`
 - [ ] T058 [P] [US3] Add integration tests that lock extension seam stability in `tests/integration/scheduler_extension.rs`
 
@@ -146,10 +152,11 @@ description: "Task list for Native TLC Command Line Tool"
 - [ ] T046 [P] Add release packaging manifest for `cargo dist` in `dist/cargo-dist.toml`
 - [ ] T047 [P] Update risk register, backlog disposition, and mitigation checkpoints in `docs/migration/tlc-risk-register.md`
 - [ ] T048 Run fmt/clippy/tests/audit/parity/perf verification script in `scripts/dev/check-all.sh`
+- [ ] T071 Wire performance gate binary into `scripts/dev/check-all.sh` and CI workflows so ≥20% throughput / ≤5% memory thresholds block merges
 - [ ] T049 Publish support and troubleshooting guidance for the Rust TLC CLI in `docs/migration/tlc-support.md`
 - [ ] T050 Share final stakeholder update and archive summary in `docs/migration/tlc-rust.md`
-- [ ] T059 Automate nightly performance/parity runs with dashboards in `.github/workflows/nightly-tlc.yml`
-- [ ] T060 Configure alerting thresholds for nightly metrics and document response playbooks in `docs/migration/tlc-monitoring.md`
+- [ ] T059 Automate nightly performance/parity runs with dashboards in `.github/workflows/nightly-tlc.yml`, capturing throughput, memory, utilization, and failure rates
+- [ ] T060 Configure alerting thresholds (≥10% throughput regression, ≥5% memory growth, ≥0.5% failure rate, <70% utilization) for nightly metrics and document response playbooks in `docs/migration/tlc-monitoring.md`
 - [ ] T061 Draft legacy TLC decommission plan with cutover and rollback criteria in `docs/migration/tlc-decommission.md`
 - [ ] T062 Secure maintainer and stakeholder sign-off on decommission readiness in `docs/migration/tlc-rust.md`
 - [ ] T063 Inventory Toolbox and automation integrations, capturing interface details in `docs/migration/tlc-interop.md`

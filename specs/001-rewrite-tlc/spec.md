@@ -88,7 +88,7 @@ Infrastructure engineers can provision multi-core hardware and configure the new
 - **FR-004**: The command-line output MUST include a native progress indicator that displays explored states, estimated completion percentage, elapsed time, and current throughput when attached to a TTY, default to ANSI-colored styling while honoring a `--no-color` flag that falls back to monochrome, and MUST emit newline-delimited JSON (NDJSON) progress events with equivalent fields when stdout is non-interactive.
 - **FR-005**: For every analysis outcome (success, counterexample, liveness violation, deadlock), the tool MUST emit diagnostics, coverage summaries, and error traces that conform to current TLC semantics.
 - **FR-006**: The tool MUST pass all existing automated TLC regression suites, including nightly PlusCal conversions, parser tests, and toolbox integration checks.
-- **FR-007**: Identified high-impact TLC backlog issues (correctness gaps, performance defects, CLI usability blockers) MUST be resolved or explicitly retired before the tool is released, with status, owner, and resolution notes recorded in `specs/001-rewrite-tlc/checklists/backlog.csv` and reviewed by TLC maintainers.
+- **FR-007**: Identified high-impact TLC backlog issues (correctness gaps, performance defects, CLI usability blockers) MUST be resolved or explicitly retired before the tool is released, with status, owner, and resolution notes recorded in `specs/001-rewrite-tlc/checklists/backlog.csv` and reviewed by TLC maintainers. “High-impact” is defined as any backlog row marked `priority:P0`/`priority:P1` or `severity:critical`, plus any issue explicitly tagged as release-blocking in the curated backlog scope.
 - **FR-008**: The tool MUST collect and report run-level metrics (runtime, states-per-second, memory footprint) via CLI output and structured telemetry so regression and benchmark harnesses can compare results against the legacy implementation.
 - **FR-009**: Checkpoint persistence MUST use a Rust-native format, preferring serde for compact state payloads and evaluating an embedded local database when state volume or performance constraints exceed serde-only capabilities; Java checkpoint blobs MUST NOT be reused. Solutions MUST comfortably handle checkpoint files in the 10–100 GB range, capture the exploration frontier/backlog, visited-set metadata, worker RNG seeds, and a hash of spec/config inputs, and MAY bundle lightweight embedded databases (e.g., SQLite, sled) when serde alone is insufficient. Cross-version compatibility is NOT guaranteed; mismatched binary versions SHOULD refuse to resume and require fresh runs.
 - **FR-010**: State identity MUST rely on a deterministic 128-bit fingerprint across runs and platforms, ensuring collision risk remains negligible while keeping storage efficient.
@@ -98,7 +98,7 @@ Infrastructure engineers can provision multi-core hardware and configure the new
 ### Non-Functional Requirements
 
 - **NFR-001**: Progress indicators MUST refresh at least every 5 seconds during runs exceeding 10 minutes and report coverage within ±2% of actual explored states, with automated validation covering both TTY and NDJSON modes.
-- **NFR-002**: Nightly automated runs MUST track throughput, memory usage, and failure rates, publish historical trends, and alert maintainers when deviations exceed agreed thresholds.
+- **NFR-002**: Nightly automated runs MUST track throughput, memory usage, and failure rates, publish historical trends, and alert maintainers when deviations exceed thresholds of ≥10 % throughput regression, ≥5 % peak-memory growth, or ≥0.5 % failure rate across the monitored suite.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -123,11 +123,13 @@ Infrastructure engineers can provision multi-core hardware and configure the new
 - **SC-002**: Across the agreed performance suite, median wall-clock runtime improves by at least 20% versus the legacy TLC tool on equivalent hardware.
 - **SC-003**: During exploratory runs longer than 10 minutes, automated progress validation demonstrates refresh intervals of ≤5 seconds and final coverage deviations of ≤2% from actual explored states across both TTY and NDJSON outputs.
 - **SC-004**: The curated list of in-scope TLC backlog issues reaches zero open items prior to release sign-off.
+- **SC-005**: Large-checkpoint soak tests covering at least 10 GB and 100 GB resume scenarios complete successfully without data loss, corruption, or parity regressions relative to the legacy implementation.
 
 ## Verification Strategy *(mandatory)*
 
 - **Unit/Integration Tests**: Catalogue all ported TLC regression suites, PlusCal model libraries, parser coverage, and CLI flag tests, and ensure automated execution in CI for every change.
 - **Golden Parity Harness**: Maintain a side-by-side comparison pipeline that runs representative models on both the new and legacy TLC binaries, capturing output diffs and performance deltas until retirement.
+- **Large Checkpoint Soak Tests**: Execute dedicated 10 GB and 100 GB checkpoint generation/resume scenarios that validate storage throughput, resumability, and parity diagnostics under stress.
 - **Reproduction Command**: Provide a single documented command (and configuration bundle) that executes the full regression and performance comparison suite for local repro and release validation.
 - **Rollback Plan**: Define trigger conditions (parity regression, critical performance loss, missing diagnostics) and the procedure for pausing rollout, issuing hotfixes, or holding releases until blocking issues are resolved.
 
@@ -141,7 +143,7 @@ Infrastructure engineers can provision multi-core hardware and configure the new
 
 - **Benchmark Scenario**: Use the established TLC performance suite (e.g., Paxos, Raft, mutual exclusion models) to measure runtime, memory, and scalability characteristics.
 - **Target Budget**: Achieve at least a 20% throughput gain and no more than 5% increase in peak memory usage compared to the baseline when running with 16 worker cores.
-- **Monitoring Plan**: Schedule nightly automated runs that capture runtime, throughput, and failure trends, publish dashboards for historical comparison, and trigger alerts when parity or performance deviates beyond agreed thresholds.
+- **Monitoring Plan**: Schedule nightly automated runs that capture runtime, throughput, worker-utilization, and failure trends, publish dashboards for historical comparison, and trigger alerts when parity or performance deviates beyond agreed thresholds, including aggregate worker utilization dropping below 70% under skewed workloads.
 
 ## Migration & Collaboration *(mandatory)*
 

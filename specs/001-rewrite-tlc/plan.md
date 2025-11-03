@@ -46,7 +46,10 @@ specs/001-rewrite-tlc/
 ├── data-model.md
 ├── quickstart.md
 ├── contracts/
-└── tasks.md
+├── tasks.md
+├── checklists/
+│   └── backlog.csv
+└── parity-ledger.md
 ```
 
 ### Source Code (repository root)
@@ -76,7 +79,7 @@ tests/
 
 ### Phase 2 – Foundational (Blocking Prerequisites)
 - Deliver shared data models, deterministic fingerprints, telemetry bootstrap, and SQLite checkpoint scaffolding.
-- Stand up golden parity harness, property-based engine checks, deterministic verification scripts, and curated backlog tracking with remediation workflow captured in `checklists/backlog.csv`.
+- Stand up golden parity harness, property-based engine checks, deterministic verification scripts, curated backlog tracking with remediation workflow captured in `checklists/backlog.csv`, and large-checkpoint soak scripts that exercise 10 GB and 100 GB resume scenarios.
 
 ### Phase 3 – User Story 1 (Parity MVP)
 - Implement CLI commands, ingestion pipeline, engine entrypoint, checkpoint resume flow, and diagnostics output parity.
@@ -88,7 +91,7 @@ tests/
 
 ### Phase 5 – User Story 3 (Multi-Core Scaling)
 - Build scheduler seams with `rayon`/`crossbeam`, enforce worker throttling, and expose documented extension points for future distributed orchestrators.
-- Add scaling benchmarks, integration tests, and telemetry ensuring worker utilization remains observable and extensible.
+- Add scaling benchmarks, integration tests, and telemetry ensuring worker utilization remains observable, extensible, and alerts when aggregate utilization falls below 70% under skew.
 
 ### Final Phase – Polish & Cross-Cutting
 - Refresh documentation (quickstart, migration, support) and capture final parity/perf evidence.
@@ -98,9 +101,11 @@ tests/
 
 - **Backlog Remediation**: Backlog CSV must track status/owner/resolution notes with maintainer sign-off before release.
 - **Metric Instrumentation**: CLI and telemetry layers emit runtime, throughput, and memory metrics consumed by regression, benchmarking, and nightly monitoring pipelines.
+- **Performance Gates**: Benchmark harnesses enforce the ≥20 % throughput improvement and ≤5 % peak-memory budget before release sign-off, blocking merges when thresholds are missed.
+- **Large Checkpoint Validation**: Automated soak runs generate 10 GB and 100 GB checkpoints, resume them successfully, and surface parity diagnostics alongside throughput metrics.
 - **Scheduler Extension Seams**: Architecture notes and tests prove external schedulers can integrate without invasive rewrites, satisfying FR-011.
 - **Progress Accuracy Harness**: Dedicated tests measure refresh cadence and coverage accuracy, feeding success criterion SC-003 and NFR-001.
-- **Nightly Monitoring & Alerts**: CI/automation jobs publish trends and alert on deviations exceeding thresholds defined in the spec.
+- **Nightly Monitoring & Alerts**: CI/automation jobs publish trends and alert on deviations exceeding thresholds defined in the spec, including >10 % throughput regressions, >5 % memory growth, or >0.5 % failure rates.
 - **Legacy Decommission Plan**: Document cutover criteria, rollback paths, and downstream migration steps prior to removing Java distribution artifacts.
 - **Interop Inventory**: Maintain a living catalog of Toolbox/automation integrations with versioned interfaces and retirement timelines.
 
