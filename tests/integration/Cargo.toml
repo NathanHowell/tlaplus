@@ -7,6 +7,8 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
+chrono.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 tracing.workspace = true
@@ -27,3 +29,7 @@ path = "checkpoint_version.rs"
 [[test]]
 name = "checkpoint_soak"
 path = "checkpoint_soak.rs"
+
+[[test]]
+name = "progress_ndjson"
+path = "progress_ndjson.rs"

@@ -105,7 +105,7 @@ description: "Task list for Native TLC Command Line Tool"
 
 ### Tests & Validation
 
-- [ ] T029 [P] [US2] Add NDJSON schema regression covering progress events in `tests/integration/progress_ndjson.rs`
+- [X] T029 [P] [US2] Add NDJSON schema regression covering progress events in `tests/integration/progress_ndjson.rs`
 
 ### Implementation Tasks
 
