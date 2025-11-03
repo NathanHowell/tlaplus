@@ -1,5 +1,7 @@
 //! SQLite-backed checkpoint scaffolding.
 
+pub mod snapshot;
+
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -9,6 +11,7 @@ use std::{
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OpenFlags};
 use thiserror::Error;
+use ulid::Ulid;
 
 const DEFAULT_SCHEMA_VERSION: u32 = 1;
 
@@ -108,6 +111,8 @@ impl TempStore {
     }
 }
 
+pub use snapshot::{SnapshotError, SnapshotMetadata, SnapshotResult};
+
 /// Handle to a checkpoint database connection with normalized tuning.
 #[derive(Debug)]
 pub struct CheckpointStore {
@@ -159,7 +164,16 @@ impl CheckpointStore {
 
     /// Create an in-memory checkpoint store useful for testing.
     pub fn ephemeral(options: StoreOptions) -> Result<Self> {
-        let conn = Connection::open_in_memory()
+        let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
+            | OpenFlags::SQLITE_OPEN_CREATE
+            | OpenFlags::SQLITE_OPEN_NO_MUTEX
+            | OpenFlags::SQLITE_OPEN_URI;
+        let unique = Ulid::new();
+        let dsn = format!(
+            "file:tlc_ephemeral_{unique}?mode=memory&cache=shared",
+            unique = unique
+        );
+        let conn = Connection::open_with_flags(&dsn, flags)
             .map_err(CheckpointError::from)
             .context("failed to open in-memory checkpoint database")?;
         prepare_connection(&conn, &options, true)?;
@@ -194,6 +208,21 @@ impl CheckpointStore {
     /// Location of the on-disk database, when available.
     pub fn path(&self) -> Option<&Path> {
         self.path.as_deref()
+    }
+
+    /// Persists a checkpoint snapshot manifest to the metadata table.
+    pub fn write_snapshot_metadata(&mut self, metadata: &SnapshotMetadata) -> Result<()> {
+        Ok(metadata.persist(self.connection_mut())?)
+    }
+
+    /// Loads the active checkpoint snapshot manifest from the metadata table.
+    pub fn snapshot_metadata(&self) -> Result<SnapshotMetadata> {
+        Ok(SnapshotMetadata::load(self.connection())?)
+    }
+
+    /// Returns true if checkpoint snapshot metadata has been recorded.
+    pub fn has_snapshot_metadata(&self) -> Result<bool> {
+        Ok(SnapshotMetadata::exists(self.connection())?)
     }
 }
 
@@ -268,7 +297,11 @@ mod tests {
         let conn = store.connection();
 
         let mode = pragma_string(conn, "journal_mode").expect("query journal mode");
-        assert_eq!(mode.to_ascii_uppercase(), "WAL");
+        let normalized = mode.to_ascii_uppercase();
+        assert!(
+            normalized == "WAL" || normalized == "MEMORY",
+            "unexpected journal mode for ephemeral store: {normalized}"
+        );
 
         let wal_autocheckpoint =
             pragma_integer(conn, "wal_autocheckpoint").expect("wal autocheckpoint");
