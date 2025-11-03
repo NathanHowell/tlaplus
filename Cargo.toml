@@ -6,6 +6,7 @@ members = [
     "src/checkpoint",
     "src/telemetry",
     "src/progress",
+    "tests/integration",
 ]
 default-members = ["src/cli"]
 resolver = "2"
@@ -37,6 +38,7 @@ opentelemetry_sdk = { version = "0.21", features = ["trace"] }
 tracing-appender = "0.2"
 ulid = { version = "1.0", features = ["serde"] }
 uuid = { version = "1.10", features = ["serde", "v4"] }
+tempfile = "3.10"
 
 [profile.dev]
 opt-level = 1

@@ -23,6 +23,8 @@ use tlc_util::TelemetryMode;
 
 const DEFAULT_SERVICE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+mod redaction;
+
 /// Configuration for installing TLC telemetry subscribers.
 #[derive(Debug, Clone)]
 pub struct TelemetryConfig {
@@ -114,13 +116,15 @@ pub fn init_tracing(config: TelemetryConfig) -> Result<TelemetryGuard> {
 
     let file_appender = rolling::never(&config.log_directory, &config.log_filename);
     let (file_writer, file_guard) = tracing_appender::non_blocking(file_appender);
+    let file_layer_writer = redaction::RedactingMakeWriter::new(file_writer);
     let file_layer = tracing_subscriber::fmt::layer()
         .json()
         .with_target(false)
-        .with_writer(file_writer)
+        .with_writer(file_layer_writer)
         .with_filter(LevelFilter::TRACE);
 
     let stdout_writer = BoxMakeWriter::new(|| io::stdout());
+    let console_writer = redaction::RedactingMakeWriter::new(stdout_writer);
     let console_filter = if config.mode == TelemetryMode::Json {
         LevelFilter::TRACE
     } else {
@@ -129,7 +133,7 @@ pub fn init_tracing(config: TelemetryConfig) -> Result<TelemetryGuard> {
     let console_layer = tracing_subscriber::fmt::layer()
         .json()
         .with_target(false)
-        .with_writer(stdout_writer)
+        .with_writer(console_writer)
         .with_filter(console_filter);
 
     let mut otlp_active = false;

@@ -1,0 +1,18 @@
+[package]
+name = "tlc-integration-tests"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tracing.workspace = true
+tlc-telemetry = { path = "../../src/telemetry" }
+tlc-util = { path = "../../src/util" }
+
+[[test]]
+name = "telemetry_defaults"
+path = "telemetry_defaults.rs"
