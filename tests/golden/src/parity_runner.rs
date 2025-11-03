@@ -2,10 +2,11 @@ use std::{
     collections::BTreeSet,
     ffi::OsString,
     fmt::Write as _,
-    fs,
+    fs, io,
     num::NonZeroUsize,
     path::{Path, PathBuf},
     process::Command,
+    str::FromStr,
 };
 
 use anyhow::{anyhow, ensure, Context, Result};
@@ -16,8 +17,10 @@ use proptest::{
     test_runner::{Config as ProptestConfig, TestRunner},
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tempfile::TempDir;
 use tlc_engine::{partition_frontier, FrontierSlice};
+use ulid::Ulid;
 
 /// CLI arguments for the parity harness stub.
 #[derive(Debug, Parser)]
@@ -318,7 +321,7 @@ impl HarnessContext {
 
     fn execute_spec(&self, spec: &DiscoveredSpec) -> Result<SpecReport> {
         let inputs = resolve_spec_inputs(spec)?;
-        let rust_result = self.run_rust_tlc(&inputs);
+        let rust_result = self.run_rust_tlc(&inputs)?;
         let legacy_result = self.run_legacy_tlc(&inputs);
 
         let status_notes = determine_status(&rust_result, &legacy_result);
@@ -332,7 +335,7 @@ impl HarnessContext {
         })
     }
 
-    fn run_rust_tlc(&self, inputs: &SpecExecutionInputs) -> ExecutionResult {
+    fn run_rust_tlc(&self, inputs: &SpecExecutionInputs) -> Result<ExecutionResult> {
         let mut args = Vec::new();
         args.push(OsString::from("run"));
         args.push(OsString::from("--spec"));
@@ -348,12 +351,18 @@ impl HarnessContext {
             args.push(OsString::from(workers.to_string()));
         }
 
-        run_command(CommandDescriptor {
+        let result = run_command(CommandDescriptor {
             binary: self.rust_binary.clone(),
             args,
             working_dir: inputs.working_dir.clone(),
             role: CommandRole::Rust,
-        })
+        });
+
+        if result.executed() {
+            validate_run_metrics(&result.descriptor.working_dir)?;
+        }
+
+        Ok(result)
     }
 
     fn run_legacy_tlc(&self, inputs: &SpecExecutionInputs) -> ExecutionResult {
@@ -713,7 +722,7 @@ struct CommandDescriptor {
     role: CommandRole,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CommandRole {
     Rust,
     Legacy,
@@ -761,6 +770,10 @@ fn run_command(descriptor: CommandDescriptor) -> ExecutionResult {
         };
     }
 
+    if descriptor.role == CommandRole::Rust {
+        clear_metrics_log(&descriptor.working_dir);
+    }
+
     let mut command = Command::new(&descriptor.binary);
     command.args(&descriptor.args);
     command.current_dir(&descriptor.working_dir);
@@ -784,6 +797,169 @@ fn run_command(descriptor: CommandDescriptor) -> ExecutionResult {
             executed: false,
         },
     }
+}
+
+fn clear_metrics_log(working_dir: &Path) {
+    let log_path = metrics_log_path(working_dir);
+    match fs::remove_file(&log_path) {
+        Ok(_) => {}
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+        Err(err) => {
+            tracing::warn!(
+                path = %log_path.display(),
+                error = %err,
+                "failed to clear metrics log before run"
+            );
+        }
+    }
+}
+
+fn validate_run_metrics(working_dir: &Path) -> Result<()> {
+    let log_path = metrics_log_path(working_dir);
+    let contents = fs::read_to_string(&log_path).with_context(|| {
+        format!(
+            "failed to read telemetry log for run metrics at '{}'",
+            log_path.display()
+        )
+    })?;
+
+    for (index, line) in contents.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let event: Value = serde_json::from_str(trimmed).with_context(|| {
+            format!(
+                "failed to parse telemetry log '{}', line {}",
+                log_path.display(),
+                index + 1
+            )
+        })?;
+
+        let fields = match event.get("fields").and_then(Value::as_object) {
+            Some(fields) => fields,
+            None => continue,
+        };
+
+        if fields
+            .get("metric")
+            .and_then(Value::as_str)
+            .map(|metric| metric == "run_metrics")
+            != Some(true)
+        {
+            continue;
+        }
+
+        let run_id_str = parse_string_field(fields, "run_id")?;
+        Ulid::from_str(run_id_str)
+            .with_context(|| format!("run metrics recorded invalid run_id '{}'", run_id_str))?;
+
+        let runtime_ms = parse_f64_field(fields, "runtime_ms")?;
+        ensure!(
+            runtime_ms >= 0.0,
+            "run metrics reported negative runtime: {}",
+            runtime_ms
+        );
+
+        let states_explored = parse_u128_field(fields, "states_explored")?;
+        ensure!(
+            states_explored > 0,
+            "run metrics reported zero states explored"
+        );
+
+        let _throughput = parse_f64_field(fields, "states_per_second")?;
+        let _peak_memory = parse_u64_field(fields, "peak_memory_bytes")?;
+        let _peak_reported = parse_bool_field(fields, "peak_memory_reported")?;
+
+        return Ok(());
+    }
+
+    Err(anyhow!(
+        "run metrics event 'run_metrics' not recorded in telemetry log '{}'",
+        log_path.display()
+    ))
+}
+
+fn metrics_log_path(working_dir: &Path) -> PathBuf {
+    working_dir.join("logs").join("tlc-trace.json")
+}
+
+fn parse_string_field<'a>(
+    fields: &'a serde_json::Map<String, Value>,
+    name: &str,
+) -> Result<&'a str> {
+    fields
+        .get(name)
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("run metrics missing string field '{}'", name))
+}
+
+fn parse_f64_field(fields: &serde_json::Map<String, Value>, name: &str) -> Result<f64> {
+    let value = fields
+        .get(name)
+        .ok_or_else(|| anyhow!("run metrics missing numeric field '{}'", name))?;
+    if let Some(number) = value.as_f64() {
+        return Ok(number);
+    }
+    if let Some(as_str) = value.as_str() {
+        return as_str
+            .parse::<f64>()
+            .with_context(|| format!("run metrics field '{}' not a float", name));
+    }
+    Err(anyhow!(
+        "run metrics field '{}' must be a number or string",
+        name
+    ))
+}
+
+fn parse_u64_field(fields: &serde_json::Map<String, Value>, name: &str) -> Result<u64> {
+    let value = fields
+        .get(name)
+        .ok_or_else(|| anyhow!("run metrics missing integer field '{}'", name))?;
+    if let Some(number) = value.as_u64() {
+        return Ok(number);
+    }
+    let text = if let Some(as_str) = value.as_str() {
+        as_str.to_string()
+    } else {
+        value.to_string()
+    };
+    text.parse::<u64>()
+        .with_context(|| format!("run metrics field '{}' not a u64", name))
+}
+
+fn parse_u128_field(fields: &serde_json::Map<String, Value>, name: &str) -> Result<u128> {
+    let value = fields
+        .get(name)
+        .ok_or_else(|| anyhow!("run metrics missing integer field '{}'", name))?;
+    if let Some(as_str) = value.as_str() {
+        return as_str
+            .parse::<u128>()
+            .with_context(|| format!("run metrics field '{}' not a u128", name));
+    }
+    if let Some(number) = value.as_u64() {
+        return Ok(number as u128);
+    }
+    value
+        .to_string()
+        .parse::<u128>()
+        .with_context(|| format!("run metrics field '{}' not a u128", name))
+}
+
+fn parse_bool_field(fields: &serde_json::Map<String, Value>, name: &str) -> Result<bool> {
+    let value = fields
+        .get(name)
+        .ok_or_else(|| anyhow!("run metrics missing boolean field '{}'", name))?;
+    if let Some(flag) = value.as_bool() {
+        return Ok(flag);
+    }
+    if let Some(as_str) = value.as_str() {
+        return as_str
+            .parse::<bool>()
+            .with_context(|| format!("run metrics field '{}' not a boolean", name));
+    }
+    Err(anyhow!("run metrics field '{}' must be a boolean", name))
 }
 
 #[derive(Debug, Clone)]
@@ -941,6 +1117,61 @@ mod tests {
     use std::{io::Write, process::Command};
     use tempfile::tempdir;
 
+    fn metrics_stub_source(stdout: &str) -> String {
+        let mut code = String::new();
+        code.push_str("use std::fs::{self, OpenOptions};\n");
+        code.push_str("use std::io::Write;\n\n");
+        code.push_str("fn main() {\n");
+        code.push_str("    write_metrics().expect(\"metrics log written\");\n");
+        code.push_str("    println!(\"");
+        code.push_str(stdout);
+        code.push_str("\");\n");
+        code.push_str("}\n\n");
+        code.push_str("fn write_metrics() -> std::io::Result<()> {\n");
+        code.push_str("    let cwd = std::env::current_dir()?;\n");
+        code.push_str("    let log_dir = cwd.join(\"logs\");\n");
+        code.push_str("    fs::create_dir_all(&log_dir)?;\n");
+        code.push_str("    let log_path = log_dir.join(\"tlc-trace.json\");\n");
+        code.push_str("    let mut file = OpenOptions::new()\n");
+        code.push_str("        .create(true)\n");
+        code.push_str("        .write(true)\n");
+        code.push_str("        .truncate(true)\n");
+        code.push_str("        .open(&log_path)?;\n");
+        code.push_str("    let payload = r#\"{\"timestamp\":\"2025-11-02T00:00:00Z\",\"level\":\"INFO\",\"fields\":{\"message\":\"run metrics recorded\",\"metric\":\"run_metrics\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"runtime_ms\":2000.0,\"states_explored\":\"1337\",\"states_per_second\":668.5,\"peak_memory_bytes\":\"1048576\",\"peak_memory_reported\":true}}\"#;\n");
+        code.push_str("    writeln!(file, \"{payload}\")?;\n");
+        code.push_str("    Ok(())\n");
+        code.push_str("}\n");
+        code
+    }
+
+    fn missing_metrics_stub_source(stdout: &str) -> String {
+        format!("fn main() {{\n    println!(\"{}\");\n}}\n", stdout)
+    }
+
+    fn invalid_metrics_stub_source() -> String {
+        let mut code = String::new();
+        code.push_str("use std::fs::{self, OpenOptions};\n");
+        code.push_str("use std::io::Write;\n\n");
+        code.push_str("fn main() {\n");
+        code.push_str("    write_metrics().expect(\"invalid metrics log\");\n");
+        code.push_str("}\n\n");
+        code.push_str("fn write_metrics() -> std::io::Result<()> {\n");
+        code.push_str("    let cwd = std::env::current_dir()?;\n");
+        code.push_str("    let log_dir = cwd.join(\"logs\");\n");
+        code.push_str("    fs::create_dir_all(&log_dir)?;\n");
+        code.push_str("    let log_path = log_dir.join(\"tlc-trace.json\");\n");
+        code.push_str("    let mut file = OpenOptions::new()\n");
+        code.push_str("        .create(true)\n");
+        code.push_str("        .write(true)\n");
+        code.push_str("        .truncate(true)\n");
+        code.push_str("        .open(&log_path)?;\n");
+        code.push_str("    let payload = r#\"{\"timestamp\":\"2025-11-02T00:00:00Z\",\"level\":\"INFO\",\"fields\":{\"metric\":\"run_metrics\",\"run_id\":\"not-a-ulid\",\"runtime_ms\":-1.0,\"states_explored\":\"not-an-integer\",\"states_per_second\":\"nan\",\"peak_memory_bytes\":\"abc\",\"peak_memory_reported\":\"maybe\"}}\"#;\n");
+        code.push_str("    writeln!(file, \"{payload}\")?;\n");
+        code.push_str("    Ok(())\n");
+        code.push_str("}\n");
+        code
+    }
+
     #[test]
     fn engine_invariants_detect_invalid_partition() {
         let result = super::run_engine_invariant_suite(
@@ -1091,15 +1322,8 @@ deprecated_flags = ["tool"]
         fs::write(&spec_b, "---- MODULE SpecB ----").unwrap();
 
         let output_dir = temp.path().join("artifacts");
-        let stub = build_stub_binary(
-            temp.path(),
-            "tlc_stub_match",
-            r#"
-fn main() {
-    println!("parity stub output");
-}
-"#,
-        );
+        let stub_source = metrics_stub_source("parity stub output");
+        let stub = build_stub_binary(temp.path(), "tlc_stub_match", &stub_source);
 
         let config = HarnessConfig {
             legacy_launcher: stub.clone(),
@@ -1154,15 +1378,8 @@ fn main() {
         fs::create_dir_all(specs_root.join("SpecA")).unwrap();
 
         let output_dir = temp.path().join("artifacts");
-        let rust_stub = build_stub_binary(
-            temp.path(),
-            "rust_stub",
-            r#"
-fn main() {
-    println!("rust output");
-}
-"#,
-        );
+        let rust_stub_source = metrics_stub_source("rust output");
+        let rust_stub = build_stub_binary(temp.path(), "rust_stub", &rust_stub_source);
         let legacy_stub = build_stub_binary(
             temp.path(),
             "legacy_stub",
@@ -1212,15 +1429,8 @@ fn main() {
         fs::write(specs_root.join("SpecA.tla"), "---- MODULE SpecA ----").unwrap();
 
         let output_dir = temp.path().join("artifacts");
-        let rust_stub = build_stub_binary(
-            temp.path(),
-            "rust_stub_inconclusive",
-            r#"
-fn main() {
-    println!("rust output");
-}
-"#,
-        );
+        let rust_stub_source = metrics_stub_source("rust output");
+        let rust_stub = build_stub_binary(temp.path(), "rust_stub_inconclusive", &rust_stub_source);
 
         let config = HarnessConfig {
             legacy_launcher: temp.path().join("does-not-exist"),
@@ -1250,6 +1460,66 @@ fn main() {
         assert!(
             contents.contains("Executed: false"),
             "diff should record missing execution"
+        );
+    }
+
+    #[test]
+    fn fails_when_metrics_log_missing() {
+        let temp = tempdir().expect("temp dir");
+        let specs_root = temp.path().join("specs");
+        fs::create_dir_all(&specs_root).unwrap();
+        fs::write(specs_root.join("SpecA.tla"), "---- MODULE SpecA ----").unwrap();
+
+        let output_dir = temp.path().join("artifacts");
+        let rust_stub_source = missing_metrics_stub_source("rust output");
+        let rust_stub =
+            build_stub_binary(temp.path(), "rust_stub_missing_metrics", &rust_stub_source);
+
+        let config = HarnessConfig {
+            legacy_launcher: rust_stub.clone(),
+            specs_root: specs_root.clone(),
+            filter: None,
+            output_dir,
+            rust_binary: rust_stub,
+            workers: None,
+            golden_cache: None,
+        };
+
+        let error = run_with_config(config).expect_err("metrics validation should fail");
+        let message = format!("{error:#}");
+        assert!(
+            message.contains("run metrics"),
+            "error should mention run metrics validation, got: {message}"
+        );
+    }
+
+    #[test]
+    fn fails_when_metrics_log_invalid() {
+        let temp = tempdir().expect("temp dir");
+        let specs_root = temp.path().join("specs");
+        fs::create_dir_all(&specs_root).unwrap();
+        fs::write(specs_root.join("SpecA.tla"), "---- MODULE SpecA ----").unwrap();
+
+        let output_dir = temp.path().join("artifacts");
+        let rust_stub_source = invalid_metrics_stub_source();
+        let rust_stub =
+            build_stub_binary(temp.path(), "rust_stub_invalid_metrics", &rust_stub_source);
+
+        let config = HarnessConfig {
+            legacy_launcher: rust_stub.clone(),
+            specs_root: specs_root.clone(),
+            filter: None,
+            output_dir,
+            rust_binary: rust_stub,
+            workers: None,
+            golden_cache: None,
+        };
+
+        let error = run_with_config(config).expect_err("invalid metrics should fail");
+        let message = format!("{error:#}");
+        assert!(
+            message.contains("run metrics"),
+            "error should mention run metrics validation, got: {message}"
         );
     }
 
