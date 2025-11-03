@@ -65,7 +65,7 @@ Status legend:
 | `SPECIFICATION` | Names main behavior spec (`Spec`), may reference constant operator. | Parser populates `SpecificationPackage` spec root; integrate with executor. | ✅ |
 | `INIT` / `NEXT` | Overrides default behavior spec by naming init/action operators. | Support same override semantics, including absence (error). | ✅ |
 | `CONSTANT` / `CONSTANTS` | Assign concrete values or model values. | Mirror constant substitution pipeline: literal parsing, operator tables, module overrides, and model-value lifecycle. | ✅ Constant value system parity documented below. |
-| `ALIAS` | Provide shorthand names for operator fragments. | Preserve alias expansion. | 🟡 Need to port alias handling. |
+| `ALIAS` | Provide shorthand names for operator fragments. | Mirror alias evaluation and trace rewriting semantics; see notes. | ✅ |
 | `CONSTRAINT` / `CONSTRAINTS` | State constraints limiting explored states. | Implement filter in successor generation. | ✅ |
 | `ACTION_CONSTRAINT`(S) | Action-level constraints filtering transitions. | Mirror behavior in action evaluation. | ✅ |
 | `INVARIANT(S)` | Additional state invariants. | Already covered via CLI + config ingestion. | ✅ |
@@ -105,6 +105,21 @@ Additional behaviors:
 - **Raw serialization hooks**: `ModelConfig` retains the exact text for each `CONSTANT(S)` block (`tlatools/org.lamport.tlatools/src/tlc2/tool/impl/ModelConfig.java:177`, `tlatools/org.lamport.tlatools/src/tlc2/tool/impl/ModelConfig.java:498`), and export tooling replays it verbatim when emitting configs (`tlatools/org.lamport.tlatools/src/tlc2/output/AbstractSpecWriter.java:226`). Rust must maintain the same raw buffer to guarantee Toolbox round-trips preserve formatting and comments.
 - **Regression coverage**: Legacy tests such as `tlatools/org.lamport.tlatools/test/tlc2/tool/TLCGetNamedUndefinedTest.java:46` and `tlatools/org.lamport.tlatools/test/tlc2/tool/suite/ETest7.java:43` assert the override error paths and undefined-substitution diagnostics. Add parity tests that: (1) reject missing assignments, (2) exercise module-scoped overrides, (3) confirm `ModelValue` typing, and (4) validate operator table evaluation produces identical traces.
 
+
+---
+
+## Alias Trace Mapping Notes
+
+- **Config ingestion**: `ModelConfig.parse()` reads a single identifier after the `ALIAS` keyword (`tlatools/org.lamport.tlatools/src/tlc2/tool/impl/ModelConfig.java:249-262`). Duplicate keywords raise `EC.CFG_TWICE_KEYWORD`; a missing identifier surfaces `EC.CFG_MISSING_ID`. The value is stored verbatim so Toolbox round-tripping keeps the alias name unchanged.
+- **Definition validation**: During spec elaboration `Spec.getAliasSpec()` looks up the identifier in the definition table and enforces that it is a zero-arity operator (`tlatools/org.lamport.tlatools/src/tlc2/tool/impl/Spec.java:223-256`). It reuses existing diagnostics—undefined names hit `EC.TLC_CONFIG_SPECIFIED_NOT_DEFINED`, constants trigger `EC.TLC_CONFIG_ID_MUST_NOT_BE_CONSTANT`, non-nullary operators raise `EC.TLC_CONFIG_ID_REQUIRES_NO_ARG`, and an empty alias is rejected with `EC.TLC_CONFIG_NO_STATE_TYPE`. Rust must mirror these failures so IDEs receiving `MP` output behave identically.
+- **Evaluation pipeline**: `Tool.evalAlias` executes the alias expression for every state (and action) that will be printed or exported (`tlatools/org.lamport.tlatools/src/tlc2/tool/impl/Tool.java:1604-1687`). The evaluator seeds `IdThread` with the current state, passes both the current and successor `TLCState`, and treats a `null` result as “use the original state.” The Rust engine should surface the same API so components can call `eval_alias(current, successor)` without worrying about aliases being disabled.
+- **Trace prefix access**: When TLCExt is extended, TLC binds `TLCExt!Trace` to the prefix of states about to be printed by wrapping the result in `AliasTLCStateInfo` (`tlatools/org.lamport.tlatools/src/tlc2/tool/impl/Tool.java:1634-1678`, `tlatools/org.lamport.tlatools/src/tlc2/tool/impl/AliasTLCStateInfo.java:32-62`). This lets alias definitions compute derived views (JSON, diffs, etc.) using the whole trace. The Rust port must provide the same TLCExt context binding so existing alias modules keep working.
+- **Consumers**: Alias evaluation feeds every user-visible surface—error traces (`tlatools/org.lamport.tlatools/src/tlc2/tool/Worker.java:647-676`), invariant and implied-init diagnostics (`tlatools/org.lamport.tlatools/src/tlc2/tool/ModelChecker.java:1187-1202`, `tlatools/org.lamport.tlatools/src/tlc2/tool/Simulator.java:275-510`, `tlatools/org.lamport.tlatools/src/tlc2/tool/DFIDModelChecker.java:323-335`), simulation transcripts, and debugger/liveness reporting. We must retain these call sites so alias-based formatting continues to work regardless of exploration mode.
+- **Failure shape**: Exceptions during alias evaluation are captured and added as an auxiliary record field `_ALIASEvalError` before returning the state (`tlatools/org.lamport.tlatools/src/tlc2/tool/impl/Tool.java:1617-1687`). Downstream printers display the augmented record rather than aborting the run. Rust should clone this behavior, including the error field name, so users see consistent diagnostics.
+- **Toolbox serialization**: Toolbox-generated specs emit alias definitions via `AbstractSpecWriter.addAlias` (`tlatools/org.lamport.tlatools/src/tlc2/output/AbstractSpecWriter.java:512-536`). The rewrite must continue to accept those generated identifiers and preserve them when exporting models back to `.cfg` files.
+- **Testing**: Plan regression coverage that (1) exercises both state-level and action-level aliases, (2) verifies TLCExt trace access, (3) ensures `_ALIASEvalError` propagation, and (4) checks that distributed and resume flows keep alias output stable. Golden traces for Toolbox/CLI output should be compared against legacy TLC to guard against formatting drift.
+
+---
 
 ## Liveness Checking Parity Notes (`PROPERTY / PROPERTIES`)
 
