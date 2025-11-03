@@ -13,9 +13,11 @@ use tlc_util::{
 };
 
 mod metrics;
+mod progress;
 mod resume;
 
 pub use metrics::{RunMetrics, RunMetricsRecorder};
+pub use progress::{ProgressEmitter, ProgressSnapshot};
 pub use resume::{prepare_resume, ResumeContext, ResumeError, ResumeLineage, ResumeRequest};
 
 /// Slice of the frontier assigned to a single worker.
