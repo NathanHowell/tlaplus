@@ -88,7 +88,7 @@ description: "Task list for Native TLC Command Line Tool"
 - [X] T024 [P] [US1] Implement spec/config ingestion pipeline mapping to data models in `src/cli/src/input_loader.rs`
 - [X] T025 [US1] Implement exploration engine entrypoint with invariant checking in `src/engine/src/lib.rs`
 - [X] T026 [P] [US1] Implement checkpoint resume flow and lineage tracking in `src/engine/src/resume.rs`
-- [ ] T027 [P] [US1] Implement CLI output and diagnostics formatter matching legacy summaries in `src/cli/src/output.rs`
+- [X] T027 [P] [US1] Implement CLI output and diagnostics formatter matching legacy summaries in `src/cli/src/output.rs`
 - [ ] T028 [US1] Wire CLI binary main to engine, telemetry, and checkpoint modules in `src/cli/src/main.rs`
 - [ ] T053 [P] [US1] Emit run-level metrics (runtime, states-per-second, memory) from engine telemetry hooks in `src/engine/src/metrics.rs`
 - [ ] T054 [US1] Assert metric presence and formatting in parity and regression harnesses in `tests/golden/src/parity_runner.rs`

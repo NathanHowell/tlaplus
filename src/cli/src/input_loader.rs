@@ -362,7 +362,7 @@ mod tests {
         write_file(&spec_path, "---- MODULE Main ----\\n====");
         write_file(&config_path, "CONSTANTS Foo = 1");
 
-        let mut command = build_command(temp_dir.path());
+        let command = build_command(temp_dir.path());
         // `build_command` stored relative config; we already wrote file in same dir.
 
         let inputs = load_run_inputs(&command).expect("load inputs");

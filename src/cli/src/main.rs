@@ -1,5 +1,6 @@
 mod commands;
 mod input_loader;
+mod output;
 
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
