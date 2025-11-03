@@ -92,7 +92,7 @@ description: "Task list for Native TLC Command Line Tool"
 - [X] T028 [US1] Wire CLI binary main to engine, telemetry, and checkpoint modules in `src/cli/src/main.rs`
 - [X] T053 [P] [US1] Emit run-level metrics (runtime, states-per-second, memory) from engine telemetry hooks in `src/engine/src/metrics.rs`
 - [X] T054 [US1] Assert metric presence and formatting in parity and regression harnesses in `tests/golden/src/parity_runner.rs`
-- [ ] T080 [US1] Surface checkpoint manifest details and resume instructions in CLI interruption and mismatch messages within `src/cli/src/output.rs`
+- [X] T080 [US1] Surface checkpoint manifest details and resume instructions in CLI interruption and mismatch messages within `src/cli/src/output.rs`
 
 **Checkpoint**: Legacy parity verified — release-ready MVP.
 

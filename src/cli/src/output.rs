@@ -1,9 +1,10 @@
 //! Formatting utilities for TLC CLI diagnostics and legacy-compatible summaries.
 
-use std::fmt;
+use std::{fmt, path::Path};
 
 use thiserror::Error;
 use tlc_util::RunStatus;
+use ulid::Ulid;
 
 const TOOL_DELIMITER: &str = "@!@!@";
 const TOOL_START: &str = "STARTMSG ";
@@ -149,6 +150,117 @@ impl RunSummary {
             fingerprint,
         }
     }
+}
+
+/// Metadata surfaced when checkpoints are persisted or validated.
+#[derive(Debug, Clone)]
+pub struct CheckpointManifestInfo<'a> {
+    pub checkpoint_path: &'a Path,
+    pub manifest_path: &'a Path,
+    pub manifest_version: u32,
+    pub lineage: &'a [Ulid],
+    pub checkpoint_id: Option<Ulid>,
+}
+
+impl<'a> CheckpointManifestInfo<'a> {
+    fn formatted_lineage(&self) -> Option<String> {
+        if self.lineage.is_empty() {
+            return None;
+        }
+        let mut chain = self
+            .lineage
+            .iter()
+            .map(Ulid::to_string)
+            .collect::<Vec<_>>()
+            .join(" \u{2192} ");
+        if self.lineage.len() == 1 {
+            chain = self.lineage[0].to_string();
+        }
+        Some(chain)
+    }
+
+    fn checkpoint_display(&self) -> String {
+        format!("{}", self.checkpoint_path.display())
+    }
+
+    fn manifest_display(&self) -> String {
+        format!("{}", self.manifest_path.display())
+    }
+
+    fn resume_command(&self) -> String {
+        format!("tlc resume --checkpoint {:?}", self.checkpoint_path)
+    }
+}
+
+/// Format guidance when a run stops before completion but checkpoints were written.
+pub fn format_checkpoint_interruption(info: &CheckpointManifestInfo<'_>) -> Vec<String> {
+    let mut lines = Vec::new();
+    lines.push("Exploration interrupted before completion.".to_string());
+
+    let mut checkpoint_line = format!("Checkpoint snapshot: {}", info.checkpoint_display());
+    if let Some(id) = info.checkpoint_id {
+        checkpoint_line.push_str(&format!(" (checkpoint ID {id})"));
+    }
+    lines.push(checkpoint_line);
+
+    lines.push(format!(
+        "Checkpoint manifest v{}: {}",
+        info.manifest_version,
+        info.manifest_display()
+    ));
+
+    if let Some(lineage) = info.formatted_lineage() {
+        if info.lineage.len() == 1 {
+            lines.push(format!("Run ID: {lineage}"));
+        } else {
+            lines.push(format!("Resume lineage: {lineage}"));
+        }
+    }
+
+    lines.push(format!("Resume with: {}", info.resume_command()));
+    lines
+}
+
+/// Format guidance when a resume attempt fails due to spec hash mismatch.
+pub fn format_checkpoint_mismatch(
+    info: &CheckpointManifestInfo<'_>,
+    expected_spec_hash: &str,
+    recorded_spec_hash: &str,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    lines.push("Cannot resume from checkpoint: specification hash mismatch.".to_string());
+
+    let mut checkpoint_line = format!("Checkpoint snapshot: {}", info.checkpoint_display());
+    if let Some(id) = info.checkpoint_id {
+        checkpoint_line.push_str(&format!(" (checkpoint ID {id})"));
+    }
+    lines.push(checkpoint_line);
+
+    lines.push(format!(
+        "Checkpoint manifest v{}: {}",
+        info.manifest_version,
+        info.manifest_display()
+    ));
+    lines.push(format!("Recorded spec hash: {recorded_spec_hash}"));
+    lines.push(format!("Current spec hash: {expected_spec_hash}"));
+
+    if let Some(lineage) = info.formatted_lineage() {
+        if info.lineage.len() == 1 {
+            lines.push(format!("Run ID: {lineage}"));
+        } else {
+            lines.push(format!("Resume lineage: {lineage}"));
+        }
+    }
+
+    lines.push(
+        "Regenerate the checkpoint by rerunning `tlc run` with matching modules and configuration."
+            .to_string(),
+    );
+    lines.push(format!(
+        "To bypass this safety check (not recommended), rerun with: {} --ignore-hash",
+        info.resume_command()
+    ));
+    lines
 }
 
 /// Errors produced while rendering diagnostics.
@@ -431,5 +543,64 @@ mod tests {
             .format_summary(&summary)
             .expect_err("missing fingerprint");
         assert!(matches!(error, FormatterError::MissingFingerprintEstimates));
+    }
+
+    #[test]
+    fn formats_checkpoint_interruption_guidance() {
+        let checkpoint_path = Path::new("/tmp/checkpoints/run.chk");
+        let manifest_path = Path::new("/tmp/checkpoints/run.manifest.json");
+        let lineage = [Ulid::from_string("01HZYF3V5VZ2SXDF5C7TE0YE8N").unwrap()];
+        let info = CheckpointManifestInfo {
+            checkpoint_path,
+            manifest_path,
+            manifest_version: 1,
+            lineage: &lineage,
+            checkpoint_id: Some(Ulid::from_string("01HZYF3V7P8Z3M7YKB8N0YJQBJ").unwrap()),
+        };
+
+        let lines = format_checkpoint_interruption(&info);
+        assert_eq!(
+            lines,
+            vec![
+                "Exploration interrupted before completion.",
+                "Checkpoint snapshot: /tmp/checkpoints/run.chk (checkpoint ID 01HZYF3V7P8Z3M7YKB8N0YJQBJ)",
+                "Checkpoint manifest v1: /tmp/checkpoints/run.manifest.json",
+                "Run ID: 01HZYF3V5VZ2SXDF5C7TE0YE8N",
+                "Resume with: tlc resume --checkpoint \"/tmp/checkpoints/run.chk\"",
+            ]
+        );
+    }
+
+    #[test]
+    fn formats_checkpoint_mismatch_guidance() {
+        let checkpoint_path = Path::new("/data/run.chk");
+        let manifest_path = Path::new("/data/run.manifest.json");
+        let lineage = [
+            Ulid::from_string("01HZYF3V5VZ2SXDF5C7TE0YE8N").unwrap(),
+            Ulid::from_string("01HZYF3V8C4RSM4T7ZH5R7TW5Q").unwrap(),
+        ];
+        let info = CheckpointManifestInfo {
+            checkpoint_path,
+            manifest_path,
+            manifest_version: 2,
+            lineage: &lineage,
+            checkpoint_id: None,
+        };
+
+        let lines =
+            format_checkpoint_mismatch(&info, "abcdef1234567890", "feedfacecafebeefdeadbeef");
+        assert_eq!(
+            lines,
+            vec![
+                "Cannot resume from checkpoint: specification hash mismatch.",
+                "Checkpoint snapshot: /data/run.chk",
+                "Checkpoint manifest v2: /data/run.manifest.json",
+                "Recorded spec hash: feedfacecafebeefdeadbeef",
+                "Current spec hash: abcdef1234567890",
+                "Resume lineage: 01HZYF3V5VZ2SXDF5C7TE0YE8N → 01HZYF3V8C4RSM4T7ZH5R7TW5Q",
+                "Regenerate the checkpoint by rerunning `tlc run` with matching modules and configuration.",
+                "To bypass this safety check (not recommended), rerun with: tlc resume --checkpoint \"/data/run.chk\" --ignore-hash",
+            ]
+        );
     }
 }
