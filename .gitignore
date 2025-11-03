@@ -52,3 +52,7 @@ release/
 .idea/
 *.log
 .env*
+
+# Allow committed Cargo bin targets under tests/golden.
+!tests/golden/src/bin/
+!tests/golden/src/bin/**

@@ -6,6 +6,7 @@ members = [
     "src/checkpoint",
     "src/telemetry",
     "src/progress",
+    "tests/golden",
     "tests/integration",
     "tests/unit",
 ]
