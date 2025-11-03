@@ -1,4 +1,11 @@
 //! Shared utilities for the Rust-native TLC workspace.
+pub mod model;
+
+pub use model::{
+    Blake3Digest, ExplorationRun, ProgressMode, RunConfiguration, RunStatus, SpecificationPackage,
+    TelemetryMode, ValidationError,
+};
+
 pub mod prelude {
     //! Convenient re-exports for commonly used utility traits and helpers.
     pub use anyhow::{anyhow, Context, Result};
