@@ -46,7 +46,7 @@ Status legend:
 | `-maxSetSize num` | Bound enumerated set size (default 1,000,000). | Mirror `TLCGlobals.setBound`; enforce CLI validation, ensure Value/State vectors honor the cap, and propagate identical error messages when limits are hit. | ✅ Design captured in Set Cardinality Bound Notes. |
 | `-nowarning` | Suppress warnings. | Map to logging filter. | ✅ |
 | `-terse` | Collapse `Print` output expansion. | Provide same toggle in trace printer. | ✅ |
-| `-tool` | Emit message codes for Toolbox integration; auto-enabled with SpecTE. | Provide message catalog compatibility and ensure codes match legacy `MP`. | 🟡 Need mapping of message IDs → codes. |
+| `-tool` | Emit message codes for Toolbox integration; auto-enabled with SpecTE. | Preserve legacy tool-mode framing, message catalog IDs, and progress/state emitters exactly as TLC.java. See Tool Mode Message Notes. | ✅ Tool mode parity locked; catalog pipeline defined. |
 | `-userFile file` | Redirect `Print` output to file. | Implement user output sink identical to legacy behavior. | ✅ |
 | `-debugger [options]` | Enable TLC debugger (DAP), optional `nosuspend`, `nohalt`, `port=`, etc.; forces single worker. | Provide debugger adapter or interoperability layer; replicate flag parsing and worker restriction. | 🟡 Requires dedicated design for debugger front-end, port mapping. |
 | `-dfid num` | Use depth-first iterative deepening with initial limit `num`. | Engine supports DFID scheduling mode; parity harness tests required. | 🟡 DFID strategy port pending. |
@@ -196,6 +196,7 @@ Additional behaviors:
 ## Tool Mode Message Notes (`-tool`)
 
 - **CLI & implicit enablement**: `-tool` simply sets `TLCGlobals.tool = true` (`tlatools/org.lamport.tlatools/src/tlc2/TLC.java:551-555`), and the distributed launcher mirrors this (`tlatools/org.lamport.tlatools/src/tlc2/tool/distributed/TLCApp.java:369-385`). TLC also forces tool mode automatically when running from bundled specs (`ModelInJar`) so Toolbox automation can parse output (`tlatools/org.lamport.tlatools/src/tlc2/TLC.java:1098-1106`).
+- **Message catalog & severity mapping**: `MP` defines the tool framing delimiter `@!@!@` and severity numbers (`NONE=0`, `ERROR=1`, `TLCBUG=2`, `WARNING=3`, `STATE=4`) while `EC` enumerates every message code/template (`tlatools/org.lamport.tlatools/src/tlc2/output/MP.java:177-220`, `tlatools/org.lamport.tlatools/src/tlc2/output/EC.java`). The Rust implementation will vendor this catalog verbatim: a build-time extractor reads `EC.java`/`MP.getMessage0` and emits a machine-readable table (YAML) consumed by the Rust `tool_mode` formatter so `%n%` substitutions, ordering, and numeric codes stay identical. The generated data ships with release artifacts to guarantee Toolbox/VS Code integrations never diverge.
 - **Delimited message protocol**: When `TLCGlobals.tool` is true, every `MP.getMessage` call wraps output in `@!@!@STARTMSG <code>:<class> @!@!@` / `@!@!@ENDMSG <code> @!@!@` blocks (`tlatools/org.lamport.tlatools/src/tlc2/output/MP.java:263-317`). Rust must emit the exact delimiters, spacing, and message codes so Toolbox/VS Code parsers continue to function.
 - **State printing & traces**: Tool mode alters state formatting in `StatePrinter` and related helpers so traces appear as structured records instead of prose (`tlatools/org.lamport.tlatools/src/tlc2/output/StatePrinter.java:74-141`). The Rust trace printer needs identical metadata ordering, fingerprint handling, and `EC.TLC_BACK_TO_STATE` formatting.
 - **Lifecycle instrumentation**: Several subsystems gate additional telemetry when tool mode is active—`SpecProcessor` wraps SANY start/end messages (`tlatools/org.lamport.tlatools/src/tlc2/tool/impl/SpecProcessor.java:383-410`), `ModelChecker#printSummary` emits final progress statistics (`tlatools/org.lamport.tlatools/src/tlc2/tool/ModelChecker.java:869-872`), and startup banners annotate runs with `toolbox` metadata (`tlatools/org.lamport.tlatools/src/tlc2/TLC.java:1556-1557`). Rust should preserve these hooks so IDE integrations stay feature-complete.
@@ -266,11 +267,10 @@ Additional behaviors:
 
 ## Outstanding Questions
 
-1. Toolbox message code mapping: gather authoritative list to ensure `-tool` parity.
-2. Mail/notification support: legacy `MailSender` can be eliminated per maintainers; update plan to drop feature.
-3. Trace Explorer defaults: verify generating SpecTE artifacts by default (unless `-noGenerateSpecTE`) still matches Toolbox expectations.
-4. Symmetry reduction + fingerprint canonicalization: identify design owners and schedule deep dive.
-5. Debugger protocol (DAP): determine contract with VSCode extension and confirm compatibility expectations.
+1. Mail/notification support: legacy `MailSender` can be eliminated per maintainers; update plan to drop feature.
+2. Trace Explorer defaults: verify generating SpecTE artifacts by default (unless `-noGenerateSpecTE`) still matches Toolbox expectations.
+3. Symmetry reduction + fingerprint canonicalization: identify design owners and schedule deep dive.
+4. Debugger protocol (DAP): determine contract with VSCode extension and confirm compatibility expectations.
 
 ---
 
