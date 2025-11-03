@@ -31,7 +31,7 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-- **Rust-First TLC Core**: Confirm the work replaces or extends functionality in Rust, identify legacy Java shims to retire, and document any temporary FFI bridges.
+- **Rust-First Modernization**: Confirm the work replaces or extends functionality in Rust, identifies the best-of-class crates being leveraged (e.g., `tracing`, `rayon`, `sled`), captures the conceptual improvements over the Java design, and documents any temporary FFI bridges.
 - **Behavioral Parity & Safety Nets**: Define the golden tests, TLC models, or parity harness needed to prove equivalence with the current implementation.
 - **Idiomatic Performance & Concurrency**: Capture concurrency design choices, expected benchmarks, and how performance regressions will be detected.
 - **Evergreen Toolchain & Dependencies**: Record the Rust toolchain version, dependency upgrades, and audit steps (e.g., `cargo audit`, `clippy` gates).

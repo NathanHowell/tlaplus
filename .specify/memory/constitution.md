@@ -1,33 +1,31 @@
 <!--
 Sync Impact Report
-Version: 1.0.0 → 2.0.0
+Version: 2.0.0 → 2.1.0
 Modified Principles:
-- I. Safety-Critical Correctness → I. Rust-First TLC Core
-- II. Deterministic Reproducibility → II. Behavioral Parity & Safety Nets
-- III. Transparent Diagnostics → III. Idiomatic Performance & Concurrency
-- IV. Scalable Performance Discipline → IV. Evergreen Toolchain & Dependencies
-- V. Open Collaboration & Traceability → V. Transparent Migration & Collaboration
+- I. Rust-First TLC Core → I. Rust-First Modernization
+- III. Idiomatic Performance & Concurrency (expanded to require best-of-class Rust libraries)
 Added Sections:
 - None
 Removed Sections:
 - None
 Template Updates:
 - ✅ .specify/templates/plan-template.md
-- ✅ .specify/templates/spec-template.md
+- ✅ .specify/templates/spec-template.md (reviewed, no changes required)
 - ✅ .specify/templates/tasks-template.md
 Follow-ups:
-- ⚠ Update `DEVELOPING.md` and onboarding docs to reflect Rust-first toolchain once migration guides are prepared
+- None
 -->
 
 # TLA+ TLC Model Checker Constitution
 
 ## Core Principles
 
-### I. Rust-First TLC Core
+### I. Rust-First Modernization
 - All new TLC code and test coverage MUST be implemented in Rust using idiomatic crates; no new Java-based TLC logic may be introduced.
+- Ports MUST rethink features conceptually and adopt best-of-class Rust libraries (e.g., `tracing`, `rayon`, `sled`, `tokio`, `serde`) to achieve equal or better outcomes—line-by-line translations are prohibited.
 - Migration work MUST retire legacy Java components once feature parity is proven and provide a clear removal plan for residual shims.
 - FFI or interop layers MUST remain thin, audited, and documented to enable short-lived coexistence during the migration window.
-*Rationale: Centering the rewrite in Rust ensures we gain memory safety, modern tooling, and a sustainable long-term codebase.*
+*Rationale: Leaning into Rust fundamentals and modern crates yields a safer, more capable TLC than strict code translation ever could.*
 
 ### II. Behavioral Parity & Safety Nets
 - Every Rust port MUST ship with golden tests that compare outputs against the Java baseline until that baseline is decommissioned.
@@ -37,6 +35,7 @@ Follow-ups:
 
 ### III. Idiomatic Performance & Concurrency
 - Prefer safe Rust concurrency primitives (`std::sync`, async runtimes) and profiling before resorting to `unsafe`; any `unsafe` block MUST include justification and targeted tests.
+- Telemetry, scheduling, and storage layers MUST leverage proven Rust ecosystems (`tracing` for diagnostics, `rayon` for parallelism, `sled`/`sqlite`/`rocksdb` as appropriate for state) instead of bespoke reimplementations.
 - Performance-sensitive changes MUST include before/after metrics from cargo benches or dedicated benchmarks mirroring large model workloads.
 - Memory footprints and worker scaling behavior MUST be documented and validated under representative loads prior to release.
 *Rationale: Rust’s strengths lie in safe performance; disciplined concurrency and measurement keep TLC scalable.*
@@ -55,14 +54,17 @@ Follow-ups:
 
 ## Additional Constraints
 - Toolchain: Adopt the latest stable Rust (via `rustup toolchain install stable`), ensuring CI validates with `cargo fmt`, `cargo clippy`, and `cargo test`. Maintain compatibility notes for required Rust features.
+- Rust Library Strategy: Evaluate best-in-class crates (`tracing`, `rayon`, `sled`, `tokio`, `serde`, etc.) for each port, record the selected libraries and rationale in design docs, and prefer community-standard solutions over ad-hoc rewrites.
 - Dependency Management: Use Cargo workspaces for TLC crates, pin dependencies in `Cargo.toml`, and document security audit results (e.g., `cargo audit`) in release notes.
+- Legacy Feature Removal: When a Java feature is retired (e.g., MailSender), the Rust implementation MUST eliminate it outright—no stubs—with migration notes and release messaging capturing the removal and alternatives.
 - Interop: Maintain minimal FFI adapters to integrate remaining Java components; document interfaces and removal timelines in `docs/migration`.
 - Testing: Migration tasks MUST convert Java tests to Rust (`cargo test`, property-based tests) and keep parity with existing TLAPS/TLC models until confirmed redundant.
 - Documentation: Update CLI help, Toolbox integration notes, and developer onboarding to reflect Rust build steps (`cargo build`, `cargo bench`, `cargo nextest` if used).
 
 ## Development Workflow
-- Initiate each migration slice with `/speckit.plan` and `/speckit.spec`, outlining parity validation, toolchain implications, and Rust-specific risks.
+- Initiate each migration slice with `/speckit.plan` and `/speckit.spec`, outlining parity validation, toolchain implications, chosen best-of-class crates, and the conceptual redesign relative to Java.
 - Implement features in small, reviewable Rust modules with accompanying tests before deleting Java code; keep dual paths only as long as parity harnesses require.
+- Explicitly capture where the Rust approach improves upon the Java design (performance, clarity, ergonomics) and avoid tasks whose sole goal is line-by-line translation.
 - Run `cargo test`, `cargo fmt --check`, `cargo clippy -- -D warnings`, relevant TLC model regressions, and performance benchmarks prior to merge.
 - Coordinate release notes to flag completed ports, pending Java removals, and any user-facing behavioral changes stemming from the Rust rewrite.
 
@@ -72,4 +74,4 @@ Follow-ups:
 - Versioning: Use semantic versioning—MAJOR for rewrites or principle replacements, MINOR for new guidance or sections, PATCH for clarifications.
 - Compliance: Each milestone release MUST include a migration compliance checklist covering toolchain updates, parity verification, dependency audits, and documentation status.
 
-**Version**: 2.0.0 | **Ratified**: 2025-11-02 | **Last Amended**: 2025-11-02
+**Version**: 2.1.0 | **Ratified**: 2025-11-02 | **Last Amended**: 2025-11-02

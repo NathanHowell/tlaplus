@@ -14,6 +14,7 @@ description: "Task list template for feature implementation"
 
 **Constitution Guardrails**:
 - Include tasks for automated verification (Rust tests, TLC models, parity harness) before feature work starts.
+- Add explicit tasks for selecting and integrating best-of-class Rust crates (`tracing`, `rayon`, `sled`, etc.) instead of direct Java-to-Rust translations.
 - Add deterministic reproduction or benchmark tasks using `cargo test`, `cargo bench`, or dedicated scripts with recorded toolchain versions.
 - Capture diagnostics/doc updates so Toolbox output and docs stay aligned with new Rust logging or CLI behavior.
 - Ensure performance profiling/monitoring tasks exist when behavior can impact throughput or memory versus the Java baseline.

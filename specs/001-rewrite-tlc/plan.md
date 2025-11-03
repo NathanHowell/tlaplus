@@ -31,7 +31,7 @@ Port the TLC model checker to a native Rust CLI that preserves full behavioral p
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-- **Rust-First TLC Core**: All new code ships in Rust, with only parity harness wrappers invoking Java; retire remaining shims after two consecutive green parity releases documented in `docs/migration/tlc-rust.md`.
+- **Rust-First Modernization**: All new code ships in Rust, leveraging best-of-class crates (`tracing`, `rayon`, `sled`, `tokio`) to reimagine the design; parity harness wrappers may invoke Java temporarily, but shims must be retired after two consecutive green parity releases documented in `docs/migration/tlc-rust.md`.
 - **Behavioral Parity & Safety Nets**: Nightly golden harness runs full TLC regression corpus through both binaries via `tlc-parity`, owned by the Rust TLC migration team, gating merges before GA.
 - **Idiomatic Performance & Concurrency**: Use `rayon` + `crossbeam` work-stealing scheduler, capture benchmarks via `cargo bench`/`criterion` on Paxos/Raft suites, and require review + dedicated tests for any `unsafe`.
 - **Evergreen Toolchain & Dependencies**: Pin Rust 1.83 stable in `rust-toolchain.toml`, enforce `fmt`, `clippy -D warnings`, `test`, `nextest`, and `cargo audit` per CI run, document upgrades.
