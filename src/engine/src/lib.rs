@@ -12,8 +12,10 @@ use tlc_util::{
     ValidationError,
 };
 
+mod metrics;
 mod resume;
 
+pub use metrics::{RunMetrics, RunMetricsRecorder};
 pub use resume::{prepare_resume, ResumeContext, ResumeError, ResumeLineage, ResumeRequest};
 
 /// Slice of the frontier assigned to a single worker.
