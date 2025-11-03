@@ -13,6 +13,8 @@ tempfile.workspace = true
 tracing.workspace = true
 clap.workspace = true
 globset.workspace = true
+tlc-engine = { path = "../../src/engine" }
+proptest.workspace = true
 
 [lib]
 path = "src/lib.rs"

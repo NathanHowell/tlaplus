@@ -2,6 +2,7 @@ use std::{
     ffi::OsString,
     fmt::Write as _,
     fs,
+    num::NonZeroUsize,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -9,8 +10,13 @@ use std::{
 use anyhow::{anyhow, ensure, Context, Result};
 use clap::Parser;
 use globset::{GlobBuilder, GlobMatcher};
+use proptest::{
+    prelude::*,
+    test_runner::{Config as ProptestConfig, TestRunner},
+};
 use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
+use tlc_engine::{partition_frontier, FrontierSlice};
 
 /// CLI arguments for the parity harness stub.
 #[derive(Debug, Parser)]
@@ -138,6 +144,87 @@ fn run_with_config(config: HarnessConfig) -> Result<()> {
     context.run()
 }
 
+const DEFAULT_PROPTEST_CASES: u32 = 128;
+
+fn resolve_invariant_case_count() -> u32 {
+    match std::env::var("TLC_PARITY_PROPTEST_CASES") {
+        Ok(value) => value
+            .parse::<u32>()
+            .ok()
+            .filter(|cases| *cases > 0)
+            .unwrap_or(DEFAULT_PROPTEST_CASES),
+        Err(_) => DEFAULT_PROPTEST_CASES,
+    }
+}
+
+fn run_engine_invariant_suite<F>(partitioner: F, case_count: u32) -> Result<()>
+where
+    F: Fn(usize, NonZeroUsize) -> Vec<FrontierSlice>,
+{
+    let mut config = ProptestConfig::default();
+    config.cases = case_count;
+    config.failure_persistence = None;
+
+    let mut runner = TestRunner::new(config);
+    let strategy = (0usize..=100_000usize, 1usize..=64usize).prop_map(|(frontier_len, workers)| {
+        let workers = NonZeroUsize::new(workers).expect("worker range never yields zero");
+        (frontier_len, workers)
+    });
+
+    runner
+        .run(&strategy, |(frontier_len, workers)| {
+            let slices = partitioner(frontier_len, workers);
+            prop_assert_eq!(
+                slices.len(),
+                workers.get(),
+                "frontier partition should produce one slice per worker"
+            );
+
+            let mut cursor = 0usize;
+            for slice in &slices {
+                prop_assert_eq!(
+                    slice.start,
+                    cursor,
+                    "slice expected to begin where previous slice ended (start={}, cursor={})",
+                    slice.start,
+                    cursor
+                );
+                prop_assert!(
+                    slice.end >= slice.start,
+                    "slice end must not precede slice start"
+                );
+                cursor = slice.end;
+            }
+            prop_assert_eq!(
+                cursor,
+                frontier_len,
+                "frontier slices must cover the entire frontier"
+            );
+
+            let lengths: Vec<usize> = slices.iter().map(FrontierSlice::len).collect();
+            prop_assert_eq!(
+                lengths.iter().sum::<usize>(),
+                frontier_len,
+                "slice lengths must total the frontier length"
+            );
+            if let (Some(min), Some(max)) = (lengths.iter().min(), lengths.iter().max()) {
+                prop_assert!(
+                    max - min <= 1,
+                    "slice length imbalance should be at most one element"
+                );
+            }
+
+            Ok(())
+        })
+        .map_err(|error| anyhow!("engine invariant check failed: {error}"))
+}
+
+fn verify_engine_invariants() -> Result<()> {
+    let cases = resolve_invariant_case_count();
+    tracing::debug!(cases, "Running engine invariant property suite.");
+    run_engine_invariant_suite(partition_frontier, cases)
+}
+
 #[derive(Debug)]
 struct HarnessContext {
     config: HarnessConfig,
@@ -157,6 +244,9 @@ impl HarnessContext {
     }
 
     fn run(&self) -> Result<()> {
+        verify_engine_invariants().context("engine invariants must pass before parity runs")?;
+        tracing::debug!("Engine invariants passed; continuing with parity execution.");
+
         tracing::debug!(
             workspace = %self.workspace.path().display(),
             specs = %self.config.specs_root.display(),
@@ -727,6 +817,42 @@ mod tests {
     use super::*;
     use std::{io::Write, process::Command};
     use tempfile::tempdir;
+
+    #[test]
+    fn engine_invariants_detect_invalid_partition() {
+        let result = super::run_engine_invariant_suite(
+            |frontier_len, workers| {
+                let worker_count = workers.get();
+                let mut slices = Vec::with_capacity(worker_count);
+                let mut cursor = 0usize;
+                for idx in 0..worker_count {
+                    let extra = usize::from(idx < (frontier_len % worker_count));
+                    let chunk = frontier_len / worker_count + extra;
+                    let end = cursor + chunk;
+                    // Introduce a gap at the start of the first slice.
+                    let start = if idx == 0 {
+                        cursor.saturating_add(1)
+                    } else {
+                        cursor
+                    };
+                    slices.push(FrontierSlice { start, end });
+                    cursor = end;
+                }
+                slices
+            },
+            8,
+        );
+        assert!(
+            result.is_err(),
+            "invalid partitioning should be flagged by invariants"
+        );
+    }
+
+    #[test]
+    fn engine_invariants_pass_for_partition_frontier() {
+        super::run_engine_invariant_suite(partition_frontier, 8)
+            .expect("partition_frontier should satisfy engine invariants");
+    }
 
     #[test]
     fn reports_match_when_outputs_are_identical() {
