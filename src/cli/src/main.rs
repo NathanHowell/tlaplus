@@ -33,10 +33,14 @@ fn init_tracing() {
 fn main() -> anyhow::Result<()> {
     let _args = Cli::parse();
     let telemetry_config = tlc_telemetry::TelemetryConfig::default();
-    if let Err(err) = tlc_telemetry::init_tracing(telemetry_config.clone()) {
-        init_tracing();
-        tracing::warn!(error = ?err, "falling back to CLI tracing bootstrap");
-    }
+    let _telemetry_guard = match tlc_telemetry::init_tracing(telemetry_config.clone()) {
+        Ok(guard) => guard,
+        Err(err) => {
+            init_tracing();
+            tracing::warn!(error = ?err, "falling back to CLI tracing bootstrap");
+            tlc_telemetry::TelemetryGuard::disabled()
+        }
+    };
 
     tlc_util::initialize_runtime()?;
     tlc_engine::bootstrap_engine()?;
