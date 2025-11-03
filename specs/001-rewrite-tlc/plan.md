@@ -80,6 +80,8 @@ tests/
 ### Phase 2 – Foundational (Blocking Prerequisites)
 - Deliver shared data models, deterministic fingerprints, telemetry bootstrap, and SQLite checkpoint scaffolding.
 - Stand up golden parity harness, property-based engine checks, deterministic verification scripts, curated backlog tracking with remediation workflow captured in `checklists/backlog.csv`, and large-checkpoint soak scripts that exercise 10 GB and 100 GB resume scenarios.
+- Validate telemetry defaults by ensuring local-only spans, identifier redaction, and remote exporter opt-in gates are enforced prior to story work.
+- Capture cross-platform fingerprint fixtures and repeatability tests to guarantee hash determinism before higher-level stories rely on them.
 
 ### Phase 3 – User Story 1 (Parity MVP)
 - Implement CLI commands, ingestion pipeline, engine entrypoint, checkpoint resume flow, and diagnostics output parity.
@@ -106,6 +108,10 @@ tests/
 - **Scheduler Extension Seams**: Architecture notes and tests prove external schedulers can integrate without invasive rewrites, satisfying FR-011.
 - **Progress Accuracy Harness**: Dedicated tests measure refresh cadence and coverage accuracy, feeding success criterion SC-003 and NFR-001.
 - **Nightly Monitoring & Alerts**: CI/automation jobs publish trends and alert on deviations exceeding thresholds defined in the spec, including >10 % throughput regressions, >5 % memory growth, or >0.5 % failure rates.
+- **Stakeholder Update Cadence**: Bi-weekly status briefs and release prep updates are scheduled with owners, covering Toolbox, release, and community stakeholders through the final cutover.
+- **Telemetry Guardrails Validation**: Plan includes verification that local-only telemetry remains the default, redacted data is enforced, and remote exporters require explicit opt-in before implementation begins.
+- **Fingerprint Determinism Validation**: Establish repeatable cross-run hash comparisons to prove 128-bit fingerprints are stable across platforms and toolchain updates.
+- **Toolbox Compatibility Sweep**: Run automated Toolbox smoke tests against updated CLI outputs to confirm downstream integrations remain functional.
 - **Legacy Decommission Plan**: Document cutover criteria, rollback paths, and downstream migration steps prior to removing Java distribution artifacts.
 - **Interop Inventory**: Maintain a living catalog of Toolbox/automation integrations with versioned interfaces and retirement timelines.
 

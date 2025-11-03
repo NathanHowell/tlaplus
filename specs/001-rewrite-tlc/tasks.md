@@ -49,6 +49,11 @@ description: "Task list for Native TLC Command Line Tool"
 - [ ] T011 Wire tracing subscribers and OTLP gating for telemetry bootstrap in `src/telemetry/src/lib.rs`
 - [ ] T012 [P] Implement SQLite checkpoint store initialization with WAL tuning in `src/checkpoint/src/lib.rs`
 - [ ] T013 Define checkpoint metadata helpers for `CheckpointSnapshot` management in `src/checkpoint/src/snapshot.rs`
+- [ ] T074 Add integration tests confirming telemetry defaults to local-only spans with spec/module identifiers redacted in `tests/integration/telemetry_defaults.rs`
+- [ ] T075 Document remote telemetry opt-in flow and enforce CLI/ENV gating in `docs/migration/tlc-telemetry.md`
+- [ ] T078 Implement checkpoint manifest versioning and mismatch rejection in `src/checkpoint/src/version.rs`
+- [ ] T079 Add negative resume integration test covering stale checkpoint manifests in `tests/integration/checkpoint_version.rs`
+- [ ] T082 [P] Capture cross-platform fingerprint fixtures and determinism tests in `tests/unit/fingerprint_determinism.rs`
 - [ ] T014 Configure parity harness crate manifest and legacy TLC launcher shim in `tests/golden/Cargo.toml`
 - [ ] T015 [P] Stub parity runner scaffolding that captures diff artifacts in `tests/golden/src/parity_runner.rs`
 - [ ] T016 [P] Scaffold property-based engine invariants using `proptest` in `tests/unit/engine_prop.rs`
@@ -87,6 +92,7 @@ description: "Task list for Native TLC Command Line Tool"
 - [ ] T028 [US1] Wire CLI binary main to engine, telemetry, and checkpoint modules in `src/cli/src/main.rs`
 - [ ] T053 [P] [US1] Emit run-level metrics (runtime, states-per-second, memory) from engine telemetry hooks in `src/engine/src/metrics.rs`
 - [ ] T054 [US1] Assert metric presence and formatting in parity and regression harnesses in `tests/golden/src/parity_runner.rs`
+- [ ] T080 [US1] Surface checkpoint manifest details and resume instructions in CLI interruption and mismatch messages within `src/cli/src/output.rs`
 
 **Checkpoint**: Legacy parity verified — release-ready MVP.
 
@@ -161,6 +167,10 @@ description: "Task list for Native TLC Command Line Tool"
 - [ ] T062 Secure maintainer and stakeholder sign-off on decommission readiness in `docs/migration/tlc-rust.md`
 - [ ] T063 Inventory Toolbox and automation integrations, capturing interface details in `docs/migration/tlc-interop.md`
 - [ ] T064 Maintain interop retirement timeline and version matrix in `docs/migration/tlc-interop.md`
+- [ ] T076 Publish bi-weekly stakeholder status updates and decisions in `docs/migration/tlc-status.md`
+- [ ] T077 Maintain communication calendar and distribution list for Toolbox, release, and community stakeholders in `docs/migration/tlc-status.md`
+- [ ] T081 Document checkpoint manifest format and restart workflow in `docs/migration/tlc-resume.md`
+- [ ] T083 Run Toolbox smoke tests validating CLI output compatibility in `tests/integration/toolbox_sanity.rs`
 
 ---
 
