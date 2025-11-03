@@ -21,6 +21,7 @@ tlatools/org.lamport.tlatools/test-reports
 tlatools/org.lamport.tlatools/ByteUtilsTest*.bin
 tlatools/org.lamport.tlatools/states/
 *.csv
+!specs/001-rewrite-tlc/checklists/backlog.csv
 toolbox/org.lamport.tla.toolbox.product.product/plugin_customization.ini
 examples/*/states/
 general/performance/states/
