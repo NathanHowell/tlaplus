@@ -1,9 +1,11 @@
 mod commands;
+mod input_loader;
 
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
 use commands::{Cli, Command};
+use input_loader::load_run_inputs;
 use tlc_progress::ProgressEvent;
 
 fn init_tracing() {
@@ -38,7 +40,12 @@ fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Command::Run(run) => {
-            tracing::info!(?run, "executing `tlc run` (implementation pending)");
+            let inputs = load_run_inputs(&run).map_err(anyhow::Error::new)?;
+            tracing::info!(
+                spec_id = %inputs.specification.id,
+                run_id = %inputs.configuration.run_id,
+                "prepared TLC run inputs"
+            );
         }
         Command::Resume(resume) => {
             tracing::info!(?resume, "executing `tlc resume` (implementation pending)");

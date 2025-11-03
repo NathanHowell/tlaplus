@@ -85,7 +85,7 @@ description: "Task list for Native TLC Command Line Tool"
 ### Implementation Tasks
 
 - [X] T023 [P] [US1] Implement `tlc run`/`tlc resume` command definitions and flag parity in `src/cli/src/commands.rs`
-- [ ] T024 [P] [US1] Implement spec/config ingestion pipeline mapping to data models in `src/cli/src/input_loader.rs`
+- [X] T024 [P] [US1] Implement spec/config ingestion pipeline mapping to data models in `src/cli/src/input_loader.rs`
 - [ ] T025 [US1] Implement exploration engine entrypoint with invariant checking in `src/engine/src/lib.rs`
 - [ ] T026 [P] [US1] Implement checkpoint resume flow and lineage tracking in `src/engine/src/resume.rs`
 - [ ] T027 [P] [US1] Implement CLI output and diagnostics formatter matching legacy summaries in `src/cli/src/output.rs`

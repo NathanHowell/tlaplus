@@ -12,15 +12,22 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+blake3.workspace = true
 clap.workspace = true
+thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+ulid.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-opentelemetry.workspace = true
+uuid.workspace = true
 
 tlc-util = { path = "../util" }
 tlc-engine = { path = "../engine" }
 tlc-checkpoint = { path = "../checkpoint" }
 tlc-telemetry = { path = "../telemetry" }
 tlc-progress = { path = "../progress" }
+
+[dev-dependencies]
+tempfile.workspace = true
