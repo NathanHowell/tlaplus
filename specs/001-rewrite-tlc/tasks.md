@@ -54,7 +54,9 @@ description: "Task list for Native TLC Command Line Tool"
 - [ ] T016 [P] Scaffold property-based engine invariants using `proptest` in `tests/unit/engine_prop.rs`
 - [ ] T017 Publish deterministic verification script chaining fmt/clippy/tests/audit/parity/perf in `scripts/dev/check-all.sh`
 - [ ] T018 Document shared development workflow and constitution guardrails in `docs/migration/tlc-rust.md`
-- [ ] T019 Curate TLC backlog scope and owners in `specs/001-rewrite-tlc/checklists/backlog.csv`
+- [ ] T019 Curate TLC backlog scope, assign owners, and define remediation status taxonomy in `specs/001-rewrite-tlc/checklists/backlog.csv`
+- [ ] T051 Capture backlog remediation plan (status codes, exit criteria, reviewer checklist) in `specs/001-rewrite-tlc/checklists/backlog.csv`
+- [ ] T052 Record maintainer sign-off for resolved or retired backlog items and archive decisions in `specs/001-rewrite-tlc/parity-ledger.md`
 
 **Checkpoint**: Foundation ready — user story implementation can now begin in parallel.
 
@@ -79,6 +81,8 @@ description: "Task list for Native TLC Command Line Tool"
 - [ ] T026 [P] [US1] Implement checkpoint resume flow and lineage tracking in `src/engine/src/resume.rs`
 - [ ] T027 [P] [US1] Implement CLI output and diagnostics formatter matching legacy summaries in `src/cli/src/output.rs`
 - [ ] T028 [US1] Wire CLI binary main to engine, telemetry, and checkpoint modules in `src/cli/src/main.rs`
+- [ ] T053 [P] [US1] Emit run-level metrics (runtime, states-per-second, memory) from engine telemetry hooks in `src/engine/src/metrics.rs`
+- [ ] T054 [US1] Assert metric presence and formatting in parity and regression harnesses in `tests/golden/src/parity_runner.rs`
 
 **Checkpoint**: Legacy parity verified — release-ready MVP.
 
@@ -101,6 +105,8 @@ description: "Task list for Native TLC Command Line Tool"
 - [ ] T033 [US2] Wire CLI `--progress` flag resolution to renderer selection in `src/cli/src/commands.rs`
 - [ ] T034 [US2] Document progress modes, NDJSON contract, and Toolbox considerations in `docs/migration/tlc-progress.md`
 - [ ] T035 [US2] Implement `--no-color` flag handling and validation in `src/cli/src/commands.rs` and `tests/integration/progress_tty.rs`
+- [ ] T055 [US2] Build progress validation harness measuring refresh cadence and coverage accuracy in `tests/integration/progress_validation.rs`
+- [ ] T056 [US2] Enforce progress accuracy thresholds in CI via parity harness hooks in `tests/golden/src/parity_runner.rs`
 
 **Checkpoint**: Visual and non-TTY progress experiences complete.
 
@@ -123,6 +129,8 @@ description: "Task list for Native TLC Command Line Tool"
 - [ ] T040 [US3] Integrate worker configuration, memory guards, and defaults in `src/engine/src/config.rs`
 - [ ] T041 [US3] Wire CLI worker/memory flags and defaults into command parsing in `src/cli/src/commands.rs`
 - [ ] T042 [P] [US3] Emit worker utilization telemetry for observability in `src/telemetry/src/workers.rs`
+- [ ] T057 [US3] Document scheduler extension seams and handoff contracts in `docs/migration/tlc-scheduler-extension.md`
+- [ ] T058 [P] [US3] Add integration tests that lock extension seam stability in `tests/integration/scheduler_extension.rs`
 
 **Checkpoint**: Multi-core execution tuned and benchmarked.
 
@@ -140,6 +148,12 @@ description: "Task list for Native TLC Command Line Tool"
 - [ ] T048 Run fmt/clippy/tests/audit/parity/perf verification script in `scripts/dev/check-all.sh`
 - [ ] T049 Publish support and troubleshooting guidance for the Rust TLC CLI in `docs/migration/tlc-support.md`
 - [ ] T050 Share final stakeholder update and archive summary in `docs/migration/tlc-rust.md`
+- [ ] T059 Automate nightly performance/parity runs with dashboards in `.github/workflows/nightly-tlc.yml`
+- [ ] T060 Configure alerting thresholds for nightly metrics and document response playbooks in `docs/migration/tlc-monitoring.md`
+- [ ] T061 Draft legacy TLC decommission plan with cutover and rollback criteria in `docs/migration/tlc-decommission.md`
+- [ ] T062 Secure maintainer and stakeholder sign-off on decommission readiness in `docs/migration/tlc-rust.md`
+- [ ] T063 Inventory Toolbox and automation integrations, capturing interface details in `docs/migration/tlc-interop.md`
+- [ ] T064 Maintain interop retirement timeline and version matrix in `docs/migration/tlc-interop.md`
 
 ---
 
@@ -154,7 +168,7 @@ description: "Task list for Native TLC Command Line Tool"
 
 ### User Story Dependencies
 
-- **User Story 1 (P1)**: Requires foundational telemetry, persistence, parity harness, and backlog readiness (T009–T019); no downstream dependencies.
+- **User Story 1 (P1)**: Requires foundational telemetry, persistence, parity harness, and backlog readiness (T009–T019, T051–T052); no downstream dependencies.
 - **User Story 2 (P2)**: Requires US1 engine hooks plus foundational progress crate manifest; integrates with US1 outputs but testable independently.
 - **User Story 3 (P3)**: Requires US1 engine baseline; operates independently of US2 progress features.
 

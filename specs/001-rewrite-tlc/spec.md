@@ -73,10 +73,10 @@ Infrastructure engineers can provision multi-core hardware and configure the new
 ### Edge Cases
 
 - Progress indicator must remain responsive when total state count is unknown or changes significantly during exploration.
-- The tool must degrade gracefully when worker threads encounter divergent performance (e.g., heterogeneous cores or throttled containers) without stalling the run.
+- The tool must degrade gracefully when worker threads encounter divergent performance (e.g., heterogeneous cores or throttled containers) by maintaining at least 70% aggregate worker utilization, surfacing skew telemetry, and avoiding starvation or deadlock.
 - Runs interrupted mid-exploration (user cancel, node reboot) must provide actionable restart guidance and avoid corrupting checkpoints.
 - Existing specification files containing legacy TLC quirks (e.g., unusual Unicode, deprecated options) must be parsed and reported consistently.
-- On restart after an interruption, the tool MUST keep legacy behavior by persisting checkpoint state in the Rust-native format and requiring the user to explicitly resume using the dedicated CLI flag or command.
+- On restart after an interruption, the tool MUST keep legacy behavior by persisting checkpoint state in the Rust-native format and requiring the user to explicitly resume using the dedicated CLI flag or command, providing clear CLI guidance that references the checkpoint manifest defined in FR-009.
 
 ## Requirements *(mandatory)*
 
@@ -88,12 +88,17 @@ Infrastructure engineers can provision multi-core hardware and configure the new
 - **FR-004**: The command-line output MUST include a native progress indicator that displays explored states, estimated completion percentage, elapsed time, and current throughput when attached to a TTY, default to ANSI-colored styling while honoring a `--no-color` flag that falls back to monochrome, and MUST emit newline-delimited JSON (NDJSON) progress events with equivalent fields when stdout is non-interactive.
 - **FR-005**: For every analysis outcome (success, counterexample, liveness violation, deadlock), the tool MUST emit diagnostics, coverage summaries, and error traces that conform to current TLC semantics.
 - **FR-006**: The tool MUST pass all existing automated TLC regression suites, including nightly PlusCal conversions, parser tests, and toolbox integration checks.
-- **FR-007**: Identified high-impact TLC backlog issues (correctness gaps, performance defects, CLI usability blockers) MUST be resolved or explicitly retired before the tool is released.
-- **FR-008**: The tool MUST collect and report run-level metrics (runtime, states-per-second, memory footprint) to enable side-by-side comparisons with the legacy implementation.
+- **FR-007**: Identified high-impact TLC backlog issues (correctness gaps, performance defects, CLI usability blockers) MUST be resolved or explicitly retired before the tool is released, with status, owner, and resolution notes recorded in `specs/001-rewrite-tlc/checklists/backlog.csv` and reviewed by TLC maintainers.
+- **FR-008**: The tool MUST collect and report run-level metrics (runtime, states-per-second, memory footprint) via CLI output and structured telemetry so regression and benchmark harnesses can compare results against the legacy implementation.
 - **FR-009**: Checkpoint persistence MUST use a Rust-native format, preferring serde for compact state payloads and evaluating an embedded local database when state volume or performance constraints exceed serde-only capabilities; Java checkpoint blobs MUST NOT be reused. Solutions MUST comfortably handle checkpoint files in the 10–100 GB range, capture the exploration frontier/backlog, visited-set metadata, worker RNG seeds, and a hash of spec/config inputs, and MAY bundle lightweight embedded databases (e.g., SQLite, sled) when serde alone is insufficient. Cross-version compatibility is NOT guaranteed; mismatched binary versions SHOULD refuse to resume and require fresh runs.
 - **FR-010**: State identity MUST rely on a deterministic 128-bit fingerprint across runs and platforms, ensuring collision risk remains negligible while keeping storage efficient.
-- **FR-011**: Initial GA scope MUST restrict execution to single-host multi-core operation; distributed or remote worker orchestration is out of scope but the architecture MUST expose extension seams (e.g., scheduler interfaces) so future Kubernetes or batch orchestrators can coordinate workers without invasive rewrites.
+- **FR-011**: Initial GA scope MUST restrict execution to single-host multi-core operation; distributed or remote worker orchestration is out of scope but the architecture MUST expose extension seams (documented scheduler interfaces, workload handoff contracts, and integration tests) so future Kubernetes or batch orchestrators can coordinate workers without invasive rewrites.
 - **FR-012**: Runtime telemetry MUST emit OpenTelemetry-compliant spans using the Rust `tracing` crate, default the subscriber to local-only emission with spec/module identifiers stripped, render structured JSON when writing to the console sink, and require an explicit CLI flag or environment variable before enabling any remote exporter.
+
+### Non-Functional Requirements
+
+- **NFR-001**: Progress indicators MUST refresh at least every 5 seconds during runs exceeding 10 minutes and report coverage within ±2% of actual explored states, with automated validation covering both TTY and NDJSON modes.
+- **NFR-002**: Nightly automated runs MUST track throughput, memory usage, and failure rates, publish historical trends, and alert maintainers when deviations exceed agreed thresholds.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -105,7 +110,7 @@ Infrastructure engineers can provision multi-core hardware and configure the new
 
 ### Assumptions
 
-- Product leadership will curate the definitive list of backlog issues considered in-scope for this release and sign off when all are resolved or retired.
+- Product leadership will curate the definitive list of backlog issues considered in-scope for this release, record them in `specs/001-rewrite-tlc/checklists/backlog.csv`, and sign off when every entry is resolved or explicitly retired.
 - Performance comparisons will use an agreed-upon set of representative specifications and hardware profiles that mirror current TLC adoption.
 - Deployment planning assumes the organization is ready to switch automation, CI pipelines, and end-user workflows directly to the new binary once release sign-off occurs.
 - Future distributed execution will be delivered via external schedulers (e.g., Kubernetes gang scheduling) that plug into defined extension seams; no coordinator for cross-host workers ships in this release.
@@ -116,7 +121,7 @@ Infrastructure engineers can provision multi-core hardware and configure the new
 
 - **SC-001**: 100% of current TLC regression specifications and acceptance tests complete successfully when run exclusively with the new `tlc` binary.
 - **SC-002**: Across the agreed performance suite, median wall-clock runtime improves by at least 20% versus the legacy TLC tool on equivalent hardware.
-- **SC-003**: During exploratory runs longer than 10 minutes, the progress indicator refreshes at least every 5 seconds and final coverage deviates by no more than 2% from actual explored states.
+- **SC-003**: During exploratory runs longer than 10 minutes, automated progress validation demonstrates refresh intervals of ≤5 seconds and final coverage deviations of ≤2% from actual explored states across both TTY and NDJSON outputs.
 - **SC-004**: The curated list of in-scope TLC backlog issues reaches zero open items prior to release sign-off.
 
 ## Verification Strategy *(mandatory)*
@@ -136,11 +141,11 @@ Infrastructure engineers can provision multi-core hardware and configure the new
 
 - **Benchmark Scenario**: Use the established TLC performance suite (e.g., Paxos, Raft, mutual exclusion models) to measure runtime, memory, and scalability characteristics.
 - **Target Budget**: Achieve at least a 20% throughput gain and no more than 5% increase in peak memory usage compared to the baseline when running with 16 worker cores.
-- **Monitoring Plan**: Schedule nightly automated runs that capture runtime, throughput, and failure trends, alerting maintainers when performance or parity deviates beyond agreed thresholds.
+- **Monitoring Plan**: Schedule nightly automated runs that capture runtime, throughput, and failure trends, publish dashboards for historical comparison, and trigger alerts when parity or performance deviates beyond agreed thresholds.
 
 ## Migration & Collaboration *(mandatory)*
 
-- **Legacy TLC Decommission Plan**: Complete the handoff by updating all downstream consumers to the new binary, place the legacy implementation in archival status, and remove its distribution artifacts once replacement is verified.
+- **Legacy TLC Decommission Plan**: Complete the handoff by updating all downstream consumers to the new binary, define cutover criteria and rollback procedures, place the legacy implementation in archival status, and remove its distribution artifacts once replacement is verified and signed off.
 - **Stakeholder Updates**: Share bi-weekly progress with Toolbox owners, release managers, and community moderators, culminating in a migration guide and release announcement.
-- **Interop/FFI Notes**: Document any direct integrations required by ToolBox and automation consumers so they target the new binary interfaces and retire legacy references.
+- **Interop/FFI Notes**: Document and version the direct integrations required by ToolBox and automation consumers (interfaces, file formats, invocation semantics) so they target the new binary interfaces and retire legacy references on an agreed timeline.
 - **Risk Register**: Track risks such as performance regressions on large specs, unaddressed backlog issues, or tooling incompatibilities, and assign mitigations with responsible owners and review dates.

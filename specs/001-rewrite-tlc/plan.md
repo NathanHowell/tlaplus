@@ -68,6 +68,42 @@ tests/
 
 **Structure Decision**: Build a Rust workspace rooted under `src/` with focused modules for CLI, engine, persistence, and telemetry plus aligned test suites to enforce parity and concurrency safety.
 
+## Phases & Milestones
+
+### Phase 1 – Setup (Shared Infrastructure)
+- Pin Rust 1.91.0 toolchain, create workspace manifests for CLI, engine, checkpoint, progress, telemetry, and utilities.
+- Establish idiomatic dependency baselines (`clap`, `serde`, `rayon`, `crossbeam`, `rusqlite`, `tracing`, `indicatif`) and ensure manifests compile in isolation.
+
+### Phase 2 – Foundational (Blocking Prerequisites)
+- Deliver shared data models, deterministic fingerprints, telemetry bootstrap, and SQLite checkpoint scaffolding.
+- Stand up golden parity harness, property-based engine checks, deterministic verification scripts, and curated backlog tracking with remediation workflow captured in `checklists/backlog.csv`.
+
+### Phase 3 – User Story 1 (Parity MVP)
+- Implement CLI commands, ingestion pipeline, engine entrypoint, checkpoint resume flow, and diagnostics output parity.
+- Extend golden harness to compare Java vs. Rust outputs, integrate property-based invariants, and emit run-level metrics (runtime, states-per-second, memory) through CLI and telemetry.
+
+### Phase 4 – User Story 2 (Progress Visibility)
+- Implement NDJSON and TTY progress renderers, CLI switching flags, and documentation of progress modes.
+- Add automated validation that progress refresh intervals stay ≤5 seconds with coverage deviations ≤2% across output modes.
+
+### Phase 5 – User Story 3 (Multi-Core Scaling)
+- Build scheduler seams with `rayon`/`crossbeam`, enforce worker throttling, and expose documented extension points for future distributed orchestrators.
+- Add scaling benchmarks, integration tests, and telemetry ensuring worker utilization remains observable and extensible.
+
+### Final Phase – Polish & Cross-Cutting
+- Refresh documentation (quickstart, migration, support) and capture final parity/perf evidence.
+- Execute nightly monitoring automation, finalize legacy decommission roadmap with rollback criteria, maintain interop inventories, and deliver stakeholder roll-up.
+
+## Additional Deliverables
+
+- **Backlog Remediation**: Backlog CSV must track status/owner/resolution notes with maintainer sign-off before release.
+- **Metric Instrumentation**: CLI and telemetry layers emit runtime, throughput, and memory metrics consumed by regression, benchmarking, and nightly monitoring pipelines.
+- **Scheduler Extension Seams**: Architecture notes and tests prove external schedulers can integrate without invasive rewrites, satisfying FR-011.
+- **Progress Accuracy Harness**: Dedicated tests measure refresh cadence and coverage accuracy, feeding success criterion SC-003 and NFR-001.
+- **Nightly Monitoring & Alerts**: CI/automation jobs publish trends and alert on deviations exceeding thresholds defined in the spec.
+- **Legacy Decommission Plan**: Document cutover criteria, rollback paths, and downstream migration steps prior to removing Java distribution artifacts.
+- **Interop Inventory**: Maintain a living catalog of Toolbox/automation integrations with versioned interfaces and retirement timelines.
+
 ## Complexity Tracking
 
 > **Fill ONLY if Constitution Check has violations that must be justified**
