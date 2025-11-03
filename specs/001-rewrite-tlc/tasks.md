@@ -50,7 +50,7 @@ description: "Task list for Native TLC Command Line Tool"
 - [X] T012 [P] Implement SQLite checkpoint store initialization with WAL tuning in `src/checkpoint/src/lib.rs`
 - [X] T013 Define checkpoint metadata helpers for `CheckpointSnapshot` management in `src/checkpoint/src/snapshot.rs`
 - [X] T074 Add integration tests confirming telemetry defaults to local-only spans with spec/module identifiers redacted in `tests/integration/telemetry_defaults.rs`
-- [ ] T075 Document remote telemetry opt-in flow and enforce CLI/ENV gating in `docs/migration/tlc-telemetry.md`
+- [X] T075 Document remote telemetry opt-in flow and enforce CLI/ENV gating in `docs/migration/tlc-telemetry.md`
 - [ ] T078 Implement checkpoint manifest versioning and mismatch rejection in `src/checkpoint/src/version.rs`
 - [ ] T079 Add negative resume integration test covering stale checkpoint manifests in `tests/integration/checkpoint_version.rs`
 - [ ] T082 [P] Capture cross-platform fingerprint fixtures and determinism tests in `tests/unit/fingerprint_determinism.rs`
