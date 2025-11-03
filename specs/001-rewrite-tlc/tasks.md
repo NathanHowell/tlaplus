@@ -109,7 +109,7 @@ description: "Task list for Native TLC Command Line Tool"
 
 ### Implementation Tasks
 
-- [ ] T030 [P] [US2] Implement `ProgressEvent` models and NDJSON writer in `src/progress/src/ndjson.rs`
+- [X] T030 [P] [US2] Implement `ProgressEvent` models and NDJSON writer in `src/progress/src/ndjson.rs`
 - [ ] T031 [P] [US2] Implement TTY progress renderer with `indicatif` in `src/progress/src/tty.rs`
 - [ ] T032 [US2] Integrate progress event emission into the engine loop in `src/engine/src/progress.rs`
 - [ ] T033 [US2] Wire CLI `--progress` flag resolution to renderer selection in `src/cli/src/commands.rs`
