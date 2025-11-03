@@ -1,6 +1,7 @@
 //! SQLite-backed checkpoint scaffolding.
 
 pub mod snapshot;
+pub mod version;
 
 use std::{
     fs,
@@ -145,7 +146,9 @@ impl CheckpointStore {
             .map_err(CheckpointError::from)
             .context("failed to open checkpoint database")?;
         prepare_connection(&conn, &options, is_new)?;
-        install_base_schema(&conn)?;
+        install_base_schema(&conn, is_new).with_context(|| {
+            format!("unable to prepare checkpoint store at '{}'", path.display())
+        })?;
 
         tracing::debug!(
             path = %path.display(),
@@ -177,7 +180,7 @@ impl CheckpointStore {
             .map_err(CheckpointError::from)
             .context("failed to open in-memory checkpoint database")?;
         prepare_connection(&conn, &options, true)?;
-        install_base_schema(&conn)?;
+        install_base_schema(&conn, true)?;
 
         tracing::debug!(
             schema_version = DEFAULT_SCHEMA_VERSION,
@@ -259,7 +262,7 @@ fn prepare_connection(conn: &Connection, options: &StoreOptions, is_new: bool) -
     Ok(())
 }
 
-fn install_base_schema(conn: &Connection) -> Result<()> {
+fn install_base_schema(conn: &Connection, is_new: bool) -> Result<()> {
     conn.execute(
         r#"
         CREATE TABLE IF NOT EXISTS checkpoint_metadata (
@@ -274,6 +277,7 @@ fn install_base_schema(conn: &Connection) -> Result<()> {
         "REPLACE INTO checkpoint_metadata (key, value) VALUES ('schema_version', ?1)",
         params![DEFAULT_SCHEMA_VERSION.to_string()],
     )?;
+    version::bootstrap_manifest_version(conn, is_new)?;
     Ok(())
 }
 
@@ -290,6 +294,8 @@ fn pragma_integer(conn: &Connection, name: &str) -> Result<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::version;
+    use rusqlite::Connection;
 
     #[test]
     fn ephemeral_store_configures_wal() {
@@ -320,5 +326,54 @@ mod tests {
             )
             .expect("schema version exists");
         assert_eq!(version, DEFAULT_SCHEMA_VERSION.to_string());
+    }
+
+    #[test]
+    fn manifest_version_written_for_new_store() {
+        let store = CheckpointStore::ephemeral(StoreOptions::default()).expect("store initialized");
+        let version_value: String = store
+            .connection()
+            .query_row(
+                "SELECT value FROM checkpoint_metadata WHERE key = ?1",
+                params![version::MANIFEST_VERSION_KEY],
+                |row| row.get(0),
+            )
+            .expect("manifest version exists");
+        assert_eq!(version_value, version::CURRENT_MANIFEST_VERSION.to_string());
+    }
+
+    #[test]
+    fn install_schema_rejects_incompatible_manifest_version() {
+        let conn = Connection::open_in_memory().expect("open in-memory database");
+        conn.execute(
+            r#"
+            CREATE TABLE checkpoint_metadata (
+                key TEXT PRIMARY KEY,
+                value BLOB NOT NULL
+            )
+            "#,
+            [],
+        )
+        .expect("create metadata table");
+        conn.execute(
+            "INSERT INTO checkpoint_metadata (key, value) VALUES (?1, ?2)",
+            params![version::MANIFEST_VERSION_KEY, "2.0"],
+        )
+        .expect("insert mismatched manifest version");
+        conn.execute(
+            "INSERT INTO checkpoint_metadata (key, value) VALUES ('schema_version', '1')",
+            [],
+        )
+        .expect("insert schema version");
+
+        let err = install_base_schema(&conn, false).expect_err("manifest version mismatch");
+        let version_error = err
+            .downcast_ref::<version::VersionError>()
+            .expect("expected version error");
+        assert!(matches!(
+            version_error,
+            version::VersionError::Incompatible { found, .. }
+            if found.major == 2 && found.minor == 0
+        ));
     }
 }
