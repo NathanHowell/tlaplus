@@ -1,0 +1,146 @@
+# TLC parity regression manifest
+# Documented list of specifications exercised by the `tlc-parity` harness
+# together with their expected legacy behaviors. The harness will evolve to
+# consume this metadata once spec ingestion (T024) and per-spec configuration
+# plumbing are in place.
+
+[suite]
+version = 1
+legacy_release = "TLA+ Tools 1.8.0 (TLC 2.18.0, Java 17)"
+description = "Curated regression manifest for the Rust TLC parity harness."
+notes = "Paths are relative to tests/golden/. Specs marked pending track follow-up tasks before they can run in automation."
+
+[[spec]]
+slug = "diehard_violation"
+display = "DieHard"
+status = "active"
+relative_path = "../regression-suite/DieHard"
+modules = ["DieHard.tla"]
+config = "DieHard.cfg"
+origin = "tlatools/org.lamport.tlatools/test-model/DieHard.tla"
+tags = ["counterexample", "pluscal", "safety"]
+[spec.expectation]
+outcome = "violation"
+exit_code = 2
+legacy_trace = "MC.out"
+notes = "Legacy TLC produces a counterexample violating Inv (big bucket reaches 4). Ensures trace parity and exit code 2 propagation."
+
+[[spec]]
+slug = "two_phase_commit_symmetry"
+display = "TwoPhaseCommit"
+status = "active"
+relative_path = "../regression-suite/TwoPhaseCommit"
+modules = ["TwoPhaseCommit.tla", "MC.tla", "DistributedCommit.tla"]
+config = "MC.cfg"
+origin = "tlatools/org.lamport.tlatools/test-model/symmetry/TwoPhaseCommit"
+tags = ["safety", "liveness", "symmetry"]
+[spec.expectation]
+outcome = "success"
+exit_code = 0
+legacy_report = "MC.out"
+notes = "Exercises symmetry reduction, multiple invariants, and liveness obligations; legacy TLC completes without violations."
+
+[[spec]]
+slug = "bakery_mutex"
+display = "Bakery (PlusCal)"
+status = "active"
+relative_path = "../regression-suite/Bakery"
+modules = ["Bakery.tla"]
+config = "Bakery.cfg"
+origin = "tlatools/org.lamport.tlatools/test-model/pcal/Bakery.tla"
+tags = ["mutual_exclusion", "pluscal", "constraint"]
+[spec.expectation]
+outcome = "success"
+exit_code = 0
+legacy_report = "MC.out"
+notes = "Covers PlusCal translation, parameter constants, and state constraint evaluation with invariant Invariant holding."
+
+[[spec]]
+slug = "paxos_made_simple"
+display = "PaxosMadeSimple"
+status = "active"
+relative_path = "../regression-suite/PaxosMadeSimple"
+modules = ["PaxosMadeSimple.tla", "MC.tla"]
+config = "MC.tla"
+origin = "general/performance/PaxosMadeSimple"
+tags = ["distributed_consensus", "liveness", "large_state"]
+[spec.expectation]
+outcome = "success"
+exit_code = 0
+legacy_report = "MC.out"
+notes = "Legacy TLC explores ~45k states with liveness enabled; establishes throughput and memory baselines for leader election runs."
+
+[[spec]]
+slug = "mongo_replraft"
+display = "MongoRaft"
+status = "active"
+relative_path = "../regression-suite/MongoRepl"
+modules = ["RaftMongo.tla", "MC.tla"]
+config = "MC.tla"
+origin = "general/performance/MongoRepl"
+tags = ["raft", "large_state", "telemetry"]
+[spec.expectation]
+outcome = "success"
+exit_code = 0
+legacy_report = "MC.out"
+notes = "Heavy-weight scenario that stresses checkpointing cadence and NDJSON telemetry; baseline run completes without violations."
+
+[[spec]]
+slug = "github710_postcondition"
+display = "Github710"
+status = "active"
+relative_path = "../regression-suite/Github710"
+modules = ["Github710a.tla", "Github710b.tla"]
+config = "Github710.cfg"
+origin = "tlatools/org.lamport.tlatools/test-model"
+tags = ["tlcext", "postcondition", "trace"]
+[spec.expectation]
+outcome = "violation"
+exit_code = 2
+legacy_trace = "MC.out"
+notes = "Verifies TLCExt trace serialization and postcondition handling; legacy TLC emits the recorded counterexample sequence."
+
+[[spec]]
+slug = "ewd998_justification"
+display = "EWD998"
+status = "active"
+relative_path = "../regression-suite/EWD998"
+modules = ["EWD998.tla", "MC.tla"]
+config = "MC.cfg"
+origin = "tlatools/org.lamport.tlatools/test-model/EWD998"
+tags = ["liveness", "justification", "safety"]
+[spec.expectation]
+outcome = "success"
+exit_code = 0
+legacy_report = "MC.out"
+notes = "Covers fairness obligations and justification requirements in liveness checking; legacy TLC reports success when fairness conditions meet."
+
+[[spec]]
+slug = "checkpoint_soak_stub"
+display = "Checkpoint Soak (10GB/100GB)"
+status = "pending"
+relative_path = "../fixtures/checkpoint-soak"
+modules = ["CheckpointSoak.tla"]
+config = "CheckpointSoak.cfg"
+origin = "tests/integration/checkpoint_soak.rs"
+tags = ["checkpoint", "large_io", "pending"]
+blocked_on = ["T065", "T066"]
+[spec.expectation]
+outcome = "pending"
+exit_code = 0
+notes = "Placeholder capturing large-checkpoint soak scenarios; awaits finalized fixtures sized at 10 GB and 100 GB before activation."
+
+[[spec]]
+slug = "unicode_legacy_flags"
+display = "Unicode CLI Legacy"
+status = "pending"
+relative_path = "../fixtures/legacy/unicode"
+modules = ["UnicodeLegacy.tla"]
+config = "UnicodeLegacy.cfg"
+origin = "specs/001-rewrite-tlc/tasks.md#T067"
+tags = ["unicode", "legacy_flag", "pending"]
+blocked_on = ["T067"]
+[spec.expectation]
+outcome = "pending"
+exit_code = 0
+notes = "Tracks upcoming regression exercising UTF-8 module names and deprecated CLI flags; activated once legacy fixtures land under T067."
