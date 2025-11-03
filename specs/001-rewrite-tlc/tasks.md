@@ -55,7 +55,7 @@ description: "Task list for Native TLC Command Line Tool"
 - [X] T079 Add negative resume integration test covering stale checkpoint manifests in `tests/integration/checkpoint_version.rs`
 - [X] T082 [P] Capture cross-platform fingerprint fixtures and determinism tests in `tests/unit/fingerprint_determinism.rs`
 - [X] T014 Configure parity harness crate manifest and legacy TLC launcher shim in `tests/golden/Cargo.toml`
-- [ ] T015 [P] Stub parity runner scaffolding that captures diff artifacts in `tests/golden/src/parity_runner.rs`
+- [X] T015 [P] Stub parity runner scaffolding that captures diff artifacts in `tests/golden/src/parity_runner.rs`
 - [ ] T016 [P] Scaffold property-based engine invariants using `proptest` in `tests/unit/engine_prop.rs`
 - [ ] T017 Publish deterministic verification script chaining fmt/clippy/tests/audit/parity/perf in `scripts/dev/check-all.sh`
 - [ ] T065 [P] Implement large-checkpoint soak generator and resume tests covering 10 GB and 100 GB scenarios in `tests/integration/checkpoint_soak.rs`
