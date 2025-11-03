@@ -15,6 +15,7 @@ clap.workspace = true
 globset.workspace = true
 tlc-engine = { path = "../../src/engine" }
 proptest.workspace = true
+toml.workspace = true
 
 [lib]
 path = "src/lib.rs"

@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeSet,
     ffi::OsString,
     fmt::Write as _,
     fs,
@@ -316,7 +317,7 @@ impl HarnessContext {
     }
 
     fn execute_spec(&self, spec: &DiscoveredSpec) -> Result<SpecReport> {
-        let inputs = resolve_spec_inputs(spec);
+        let inputs = resolve_spec_inputs(spec)?;
         let rust_result = self.run_rust_tlc(&inputs);
         let legacy_result = self.run_legacy_tlc(&inputs);
 
@@ -520,14 +521,25 @@ struct SummaryReport {
     specs: Vec<SpecReport>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct SpecExecutionInputs {
     spec_path: PathBuf,
     config_path: Option<PathBuf>,
     working_dir: PathBuf,
+    legacy_quirks: Option<LegacyQuirkMetadata>,
 }
 
-fn resolve_spec_inputs(spec: &DiscoveredSpec) -> SpecExecutionInputs {
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LegacyQuirkMetadata {
+    name: Option<String>,
+    description: Option<String>,
+    deprecated_flags: Vec<String>,
+    cli_notes: Option<String>,
+    unicode_identifiers: Vec<String>,
+    unicode_strings: Vec<String>,
+}
+
+fn resolve_spec_inputs(spec: &DiscoveredSpec) -> Result<SpecExecutionInputs> {
     if spec.path.is_dir() {
         let preferred = spec.path.join(format!("{}.tla", spec.display_name));
         let spec_path = if preferred.is_file() {
@@ -536,11 +548,13 @@ fn resolve_spec_inputs(spec: &DiscoveredSpec) -> SpecExecutionInputs {
             spec.path.clone()
         };
         let config_path = find_config_file(&spec.path, &spec.display_name);
-        SpecExecutionInputs {
+        let legacy_quirks = load_legacy_quirks(&spec.path)?;
+        Ok(SpecExecutionInputs {
             spec_path,
             config_path,
             working_dir: spec.path.clone(),
-        }
+            legacy_quirks,
+        })
     } else {
         let working_dir = spec
             .path
@@ -548,11 +562,13 @@ fn resolve_spec_inputs(spec: &DiscoveredSpec) -> SpecExecutionInputs {
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| PathBuf::from("."));
         let config_path = find_config_file(&working_dir, &spec.display_name);
-        SpecExecutionInputs {
+        let legacy_quirks = load_legacy_quirks(&working_dir)?;
+        Ok(SpecExecutionInputs {
             spec_path: spec.path.clone(),
             config_path,
             working_dir,
-        }
+            legacy_quirks,
+        })
     }
 }
 
@@ -580,6 +596,113 @@ fn find_config_file(dir: &Path, display_name: &str) -> Option<PathBuf> {
         }
     }
     fallback
+}
+
+fn load_legacy_quirks(dir: &Path) -> Result<Option<LegacyQuirkMetadata>> {
+    let fixture_path = dir.join("fixture.toml");
+    if !fixture_path.is_file() {
+        return Ok(None);
+    }
+
+    let contents = fs::read_to_string(&fixture_path).with_context(|| {
+        format!(
+            "failed to read legacy fixture metadata '{}'",
+            fixture_path.display()
+        )
+    })?;
+    let raw: RawLegacyFixture = toml::from_str(&contents).with_context(|| {
+        format!(
+            "failed to parse legacy fixture metadata '{}'",
+            fixture_path.display()
+        )
+    })?;
+
+    let mut deprecated_flags = Vec::new();
+    let mut cli_notes = None;
+    if let Some(cli) = raw.cli {
+        cli_notes = cli.notes;
+        let mut seen = BTreeSet::new();
+        for flag in cli.deprecated_flags {
+            let trimmed = flag.trim();
+            ensure!(
+                !trimmed.is_empty(),
+                "legacy fixture '{}' contains an empty deprecated flag entry",
+                fixture_path.display()
+            );
+            ensure!(
+                trimmed.starts_with('-'),
+                "legacy fixture '{}' lists deprecated flag '{}' without '-' prefix",
+                fixture_path.display(),
+                flag
+            );
+            if seen.insert(trimmed.to_string()) {
+                deprecated_flags.push(trimmed.to_string());
+            }
+        }
+    }
+
+    let unicode = raw.unicode.unwrap_or_default();
+    let unicode_identifiers =
+        normalize_unicode_values(unicode.identifiers, &fixture_path, "unicode.identifiers")?;
+    let unicode_strings =
+        normalize_unicode_values(unicode.strings, &fixture_path, "unicode.strings")?;
+
+    Ok(Some(LegacyQuirkMetadata {
+        name: raw.name,
+        description: raw.description,
+        deprecated_flags,
+        cli_notes,
+        unicode_identifiers,
+        unicode_strings,
+    }))
+}
+
+fn normalize_unicode_values(
+    values: Vec<String>,
+    fixture_path: &Path,
+    field: &str,
+) -> Result<Vec<String>> {
+    let mut normalized = Vec::new();
+    let mut seen = BTreeSet::new();
+    for value in values {
+        let trimmed = value.trim();
+        ensure!(
+            !trimmed.is_empty(),
+            "legacy fixture '{}' contains an empty entry in '{}'",
+            fixture_path.display(),
+            field
+        );
+        if seen.insert(trimmed.to_string()) {
+            normalized.push(trimmed.to_string());
+        }
+    }
+    Ok(normalized)
+}
+
+#[derive(Debug, Deserialize)]
+struct RawLegacyFixture {
+    name: Option<String>,
+    description: Option<String>,
+    #[serde(default)]
+    cli: Option<RawLegacyCli>,
+    #[serde(default)]
+    unicode: Option<RawLegacyUnicode>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawLegacyCli {
+    #[serde(default)]
+    deprecated_flags: Vec<String>,
+    #[serde(default)]
+    notes: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawLegacyUnicode {
+    #[serde(default)]
+    identifiers: Vec<String>,
+    #[serde(default)]
+    strings: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -852,6 +975,105 @@ mod tests {
     fn engine_invariants_pass_for_partition_frontier() {
         super::run_engine_invariant_suite(partition_frontier, 8)
             .expect("partition_frontier should satisfy engine invariants");
+    }
+
+    #[test]
+    fn loads_legacy_quirk_fixture_metadata() {
+        let temp = tempdir().expect("temp dir");
+        let spec_dir = temp.path().join("UnicodeLegacy");
+        fs::create_dir_all(&spec_dir).unwrap();
+        fs::write(
+            spec_dir.join("UnicodeLegacy.tla"),
+            "---- MODULE UnicodeLegacy ----",
+        )
+        .unwrap();
+        fs::write(
+            spec_dir.join("fixture.toml"),
+            r#"
+name = "unicode_legacy_flags"
+description = "Fixture capturing legacy CLI quirks."
+
+[cli]
+deprecated_flags = ["-tool", "-nowarning", "-tool"]
+notes = "Deprecated flags must be accepted without crashing."
+
+[unicode]
+identifiers = ["UTF_IDENT_A", "UTF_IDENT_A", "UTF_IDENT_B"]
+strings = ["UTF_STRING_START", "UTF_STRING_END"]
+"#,
+        )
+        .unwrap();
+
+        let spec = super::DiscoveredSpec {
+            display_name: "UnicodeLegacy".to_string(),
+            path: spec_dir.clone(),
+        };
+
+        let inputs = super::resolve_spec_inputs(&spec).expect("resolve spec inputs");
+        let quirks = inputs
+            .legacy_quirks
+            .expect("expected legacy quirks metadata to be loaded");
+
+        assert_eq!(
+            quirks.name.as_deref(),
+            Some("unicode_legacy_flags"),
+            "fixture name should roundtrip"
+        );
+        assert_eq!(
+            quirks.description.as_deref(),
+            Some("Fixture capturing legacy CLI quirks.")
+        );
+        assert_eq!(
+            quirks.deprecated_flags,
+            vec!["-tool".to_string(), "-nowarning".to_string()],
+            "duplicate deprecated flags should be deduplicated while preserving order"
+        );
+        assert_eq!(
+            quirks.cli_notes.as_deref(),
+            Some("Deprecated flags must be accepted without crashing.")
+        );
+        assert_eq!(
+            quirks.unicode_identifiers,
+            vec!["UTF_IDENT_A".to_string(), "UTF_IDENT_B".to_string()],
+            "duplicate unicode identifiers should be removed"
+        );
+        assert_eq!(
+            quirks.unicode_strings,
+            vec!["UTF_STRING_START".to_string(), "UTF_STRING_END".to_string()]
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_deprecated_flag_in_fixture() {
+        let temp = tempdir().expect("temp dir");
+        let spec_dir = temp.path().join("LegacySpec");
+        fs::create_dir_all(&spec_dir).unwrap();
+        fs::write(
+            spec_dir.join("LegacySpec.tla"),
+            "---- MODULE LegacySpec ----",
+        )
+        .unwrap();
+        fs::write(
+            spec_dir.join("fixture.toml"),
+            r#"
+[cli]
+deprecated_flags = ["tool"]
+"#,
+        )
+        .unwrap();
+
+        let spec = super::DiscoveredSpec {
+            display_name: "LegacySpec".to_string(),
+            path: spec_dir.clone(),
+        };
+
+        let error = super::resolve_spec_inputs(&spec)
+            .expect_err("invalid fixture metadata should return an error");
+
+        assert!(
+            error.to_string().contains("deprecated flag"),
+            "error should mention invalid deprecated flag: {error:?}"
+        );
     }
 
     #[test]
