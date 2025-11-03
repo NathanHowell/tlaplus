@@ -44,7 +44,8 @@ fn main() -> anyhow::Result<()> {
 
     tlc_util::initialize_runtime()?;
     tlc_engine::bootstrap_engine()?;
-    let _conn = tlc_checkpoint::open_ephemeral_checkpoint()?;
+    let _checkpoint_store =
+        tlc_checkpoint::CheckpointStore::ephemeral(tlc_checkpoint::StoreOptions::default())?;
     tlc_progress::render_placeholder(ProgressEvent {
         message: "workspace scaffolding".into(),
     })?;
