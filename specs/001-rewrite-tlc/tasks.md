@@ -60,7 +60,7 @@ description: "Task list for Native TLC Command Line Tool"
 - [X] T017 Publish deterministic verification script chaining fmt/clippy/tests/audit/parity/perf in `scripts/dev/check-all.sh`
 - [X] T065 [P] Implement large-checkpoint soak generator and resume tests covering 10 GB and 100 GB scenarios in `tests/integration/checkpoint_soak.rs`
 - [X] T066 Integrate checkpoint soak runs into `scripts/dev/check-all.sh` and CI gating so failures block merges
-- [ ] T018 Document shared development workflow and constitution guardrails in `docs/migration/tlc-rust.md`
+- [X] T018 Document shared development workflow and constitution guardrails in `docs/migration/tlc-rust.md`
 - [ ] T019 Curate TLC backlog scope, assign owners, and define remediation status taxonomy in `specs/001-rewrite-tlc/checklists/backlog.csv`
 - [ ] T051 Document backlog remediation workflow (status codes, exit criteria, reviewer checklist) in `specs/001-rewrite-tlc/checklists/README.md`
 - [ ] T052 Record maintainer sign-off for resolved or retired backlog items directly in `specs/001-rewrite-tlc/checklists/backlog.csv`
