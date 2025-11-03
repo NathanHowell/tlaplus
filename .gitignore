@@ -42,3 +42,13 @@ tlatools/org.lamport.tlatools/test-model/test.out
 .Rproj.user
 
 .codex/
+# Rust workspace artifacts
+target/
+debug/
+release/
+*.rs.bk
+*.rlib
+*.prof*
+.idea/
+*.log
+.env*

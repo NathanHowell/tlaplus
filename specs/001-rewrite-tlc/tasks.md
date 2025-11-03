@@ -27,7 +27,7 @@ description: "Task list for Native TLC Command Line Tool"
 
 **Purpose**: Create the Rust workspace skeleton and toolchain guardrails required by every subsequent phase.
 
-- [ ] T001 Pin Rust toolchain to version 1.91.0 in `rust-toolchain.toml`
+- [X] T001 Pin Rust toolchain to version 1.91.0 in `rust-toolchain.toml`
 - [ ] T002 Configure TLC workspace members and profiles in the root `Cargo.toml`
 - [ ] T003 [P] Scaffold shared utilities crate manifest with serde/tracing defaults in `src/util/Cargo.toml`
 - [ ] T004 [P] Scaffold CLI crate manifest with `clap` derive support in `src/cli/Cargo.toml`
