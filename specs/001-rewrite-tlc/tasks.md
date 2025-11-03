@@ -45,7 +45,7 @@ description: "Task list for Native TLC Command Line Tool"
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
 - [X] T009 Implement `SpecificationPackage`, `RunConfiguration`, and `ExplorationRun` structs with serde validation in `src/util/src/model.rs`
-- [ ] T010 [P] Implement deterministic `StateFingerprint` utilities and helpers in `src/util/src/fingerprint.rs`
+- [X] T010 [P] Implement deterministic `StateFingerprint` utilities and helpers in `src/util/src/fingerprint.rs`
 - [ ] T011 Wire tracing subscribers and OTLP gating for telemetry bootstrap in `src/telemetry/src/lib.rs`
 - [ ] T012 [P] Implement SQLite checkpoint store initialization with WAL tuning in `src/checkpoint/src/lib.rs`
 - [ ] T013 Define checkpoint metadata helpers for `CheckpointSnapshot` management in `src/checkpoint/src/snapshot.rs`
