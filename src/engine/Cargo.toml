@@ -11,9 +11,16 @@ path = "src/lib.rs"
 
 [dependencies]
 anyhow.workspace = true
+chrono.workspace = true
 crossbeam.workspace = true
 rayon.workspace = true
-serde.workspace = true
+thiserror.workspace = true
 tracing.workspace = true
 
 tlc-util = { path = "../util" }
+
+[dev-dependencies]
+blake3.workspace = true
+tempfile.workspace = true
+ulid.workspace = true
+uuid.workspace = true
