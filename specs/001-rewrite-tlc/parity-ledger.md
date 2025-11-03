@@ -403,7 +403,15 @@ Additional behaviors:
 - **Debugger (DAP)**: Java TLC supports DAP with `-debugger`. Need to port or provide compatibility layer; rust version must speak same protocol (TLC-specific commands). Status: ✅ (see Debugger Parity Notes).
 - **Spec-in-JAR**: Running models packaged inside `tla` jar resources via `ModelInJar` loader (`TLC.java:1102` onwards). Status: ✅ — `SpecSource::Archive` opens `.jar`/`.zip` bundles, rehydrates `/model` contents into temp dirs, and reuses the unified resolver for CLI/distributed flows.
 - **Trace Explorer (SpecTE)**: Automatic generation of trace explorer specs on failure, output location control, and integration with Toolbox. Ensure parity in file naming and module contents. Status: ✅ (see Trace Explorer Parity Notes).
-- **Email/notification hooks**: Legacy had `MailSender` integration for `-tool` mode (observed via imports). Determine if still used; if so, replicate or deprecate with stakeholder approval. Status: 🔴 needs clarification.
+- **Email/notification hooks**: Legacy `MailSender` captured console output and optionally mailed run artifacts. Status: ✅ (see MailSender Retirement Notes).
+
+## MailSender Retirement Notes
+
+- **Legacy trigger points**: `TLC.main` instantiates `util.MailSender` before invoking `tlc.process()` (`tlatools/org.lamport.tlatools/src/tlc2/TLC.java:323-376`). Toolbox launchers and distributed entry points (`TLCServer`, `TLCJobFactory`) do the same so the helper can intercept `ToolIO` streams, generate `MC.out`/`MC.err` under `java.io.tmpdir`, and attach them to completion emails or cloud telemetry (`tlatools/org.lamport.tlatools/src/tlc2/tool/distributed/TLCServer.java:701-735`, `toolbox/org.lamport.tla.toolbox.tool.tlc/src/org/lamport/tla/toolbox/tool/tlc/job/TLCJobFactory.java:8-40`). Cloud TLC explicitly tails the generated `MC.out` file while the run is live (`toolbox/org.lamport.tla.toolbox.jclouds/src/org/lamport/tla/toolbox/jcloud/CloudDistributedTLCJob.java:409-447`).
+- **Configuration contract**: MailSender reads `result.mail.address`, `modelName`, and `specName` from system properties or an embedded `generated.properties` (`util/MailSender.java:210-276`, `model/ModelInJar.java:166-216`). When `result.mail.address` is unset `toAddresses` stays `null`, `send()` becomes a no-op that still reports success, and `ToolIO` keeps writing directly to stdout/stderr (no `MC.out`/`MC.err`). When the property is provided MailSender resolves MX records, wraps `ToolIO` so the log files exist, attaches those files plus optional module archives (from `tlc.getModuleFiles()`), and blocks on retries—causing TLC to exit with a tool failure if delivery never succeeds.
+- **Rust parity decision**: The Rust rewrite removes SMTP delivery entirely: no dependency on JavaMail, no outbound network requirement, and no blocking retry loop. Instead TLC always mirrors console output into the run directory (`<metadir>/logs/MC.out|MC.err`) via the shared logging sink used for progress NDJSON. If `result.mail.address` (or Toolbox defaults) is supplied we emit a dedicated warning (`EC.TLC_EMAIL_HOOK_RETIRED`) explaining the removal and continue execution. Cloud and Toolbox integrations pivot to streaming those log files directly; distributed controllers keep receiving identical telemetry without relying on email side effects.
+- **Migration support**: `docs/migration/tlc-rust.md` already flags the retirement. We will add release note callouts, update Toolbox cloud templates to drop MailSender properties, and ensure bundlers stop writing `result.mail.address` into `generated.properties`. CLI help now recommends external alerting (CI pipelines, job schedulers) instead of built-in SMTP.
+- **Testing & verification**: Add regression coverage that (a) validates Rust TLC mirrors stdout/stderr into `MC.out`/`MC.err` identically to Java when email is disabled, (b) confirms setting `result.mail.address` surfaces the new warning yet allows the run to finish successfully, (c) exercises distributed/cloud runs to prove telemetry collection no longer depends on MailSender, and (d) keeps parity fixtures for legacy Java to detect accidental re-introduction of the SMTP dependency.
 
 ## Randomization Parity Notes
 
@@ -459,9 +467,8 @@ Additional behaviors:
 
 ## Outstanding Questions
 
-1. Mail/notification support: legacy `MailSender` can be eliminated per maintainers; update plan to drop feature.
-2. Trace Explorer defaults: resolved—Trace Explorer Parity Notes lock in the legacy gating (no auto-generation under `-tool`/`-continue`, `-generateSpecTE` to override).
-3. Debugger protocol (DAP): determine contract with VSCode extension and confirm compatibility expectations.
+1. Trace Explorer defaults: resolved—Trace Explorer Parity Notes lock in the legacy gating (no auto-generation under `-tool`/`-continue`, `-generateSpecTE` to override).
+2. Debugger protocol (DAP): determine contract with VSCode extension and confirm compatibility expectations.
 
 ---
 
