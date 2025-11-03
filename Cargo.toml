@@ -1,0 +1,47 @@
+[workspace]
+members = [
+    "src/util",
+    "src/cli",
+    "src/engine",
+    "src/checkpoint",
+    "src/telemetry",
+    "src/progress",
+]
+default-members = ["src/cli"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+rust-version = "1.91"
+
+[workspace.dependencies]
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+crossbeam = "0.9"
+indicatif = "0.17"
+rayon = "1.10"
+rusqlite = { version = "0.31", features = ["bundled", "chrono", "serde_json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-opentelemetry = "0.23"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+opentelemetry = { version = "0.21", features = ["trace"] }
+
+[profile.dev]
+opt-level = 1
+debug = true
+debug-assertions = true
+overflow-checks = true
+lto = "off"
+
+[profile.release]
+opt-level = 3
+debug = false
+debug-assertions = false
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
+panic = "abort"

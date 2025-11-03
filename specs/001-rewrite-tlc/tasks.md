@@ -28,13 +28,13 @@ description: "Task list for Native TLC Command Line Tool"
 **Purpose**: Create the Rust workspace skeleton and toolchain guardrails required by every subsequent phase.
 
 - [X] T001 Pin Rust toolchain to version 1.91.0 in `rust-toolchain.toml`
-- [ ] T002 Configure TLC workspace members and profiles in the root `Cargo.toml`
-- [ ] T003 [P] Scaffold shared utilities crate manifest with serde/tracing defaults in `src/util/Cargo.toml`
-- [ ] T004 [P] Scaffold CLI crate manifest with `clap` derive support in `src/cli/Cargo.toml`
-- [ ] T005 [P] Scaffold engine crate manifest with `rayon`/`crossbeam` dependencies in `src/engine/Cargo.toml`
-- [ ] T006 [P] Scaffold checkpoint crate manifest with `rusqlite` features in `src/checkpoint/Cargo.toml`
-- [ ] T007 [P] Scaffold telemetry crate manifest with `tracing-subscriber` and `tracing-opentelemetry` in `src/telemetry/Cargo.toml`
-- [ ] T008 [P] Scaffold progress crate manifest with `indicatif` and `serde_json` in `src/progress/Cargo.toml`
+- [X] T002 Configure TLC workspace members and profiles in the root `Cargo.toml`
+- [X] T003 [P] Scaffold shared utilities crate manifest with serde/tracing defaults in `src/util/Cargo.toml`
+- [X] T004 [P] Scaffold CLI crate manifest with `clap` derive support in `src/cli/Cargo.toml`
+- [X] T005 [P] Scaffold engine crate manifest with `rayon`/`crossbeam` dependencies in `src/engine/Cargo.toml`
+- [X] T006 [P] Scaffold checkpoint crate manifest with `rusqlite` features in `src/checkpoint/Cargo.toml`
+- [X] T007 [P] Scaffold telemetry crate manifest with `tracing-subscriber` and `tracing-opentelemetry` in `src/telemetry/Cargo.toml`
+- [X] T008 [P] Scaffold progress crate manifest with `indicatif` and `serde_json` in `src/progress/Cargo.toml`
 
 ---
 
