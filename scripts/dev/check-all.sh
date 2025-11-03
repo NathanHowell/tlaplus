@@ -14,19 +14,22 @@ Runs the TLC verification workflow in a deterministic sequence:
   1. cargo fmt --all --check
   2. cargo clippy --workspace --all-targets --all-features -- -D warnings
   3. cargo test --workspace --all-targets
-  4. cargo audit --deny warnings
-  5. tlc parity harness
-  6. performance validation hook
+  4. checkpoint soak suite
+  5. cargo audit --deny warnings
+  6. tlc parity harness
+  7. performance validation hook
 
 Options:
       --config <path>   Load environment overrides from the given file.
       --skip-parity     Skip the parity harness step.
+      --skip-soak       Skip the checkpoint soak suite.
       --skip-perf       Skip the performance step.
       --skip-audit      Skip the cargo audit step.
   -h, --help            Show this help text.
 
 Environment overrides (may also live in the config file):
   SKIP_PARITY=1         Skip the parity harness.
+  SKIP_SOAK=1           Skip the checkpoint soak suite.
   SKIP_PERF=1           Skip performance suite.
   SKIP_AUDIT=1          Skip cargo-audit.
   TLC_PARITY_LEGACY     Path to legacy TLC launcher (default: scripts/dev/legacy-tlc.sh).
@@ -34,6 +37,7 @@ Environment overrides (may also live in the config file):
   TLC_PARITY_OUTPUT_DIR Output directory for parity artifacts (default: artifacts/parity).
   TLC_PARITY_FILTER     Optional glob filter forwarded to the parity harness.
   CHECK_ALL_PERF_CMD    Shell command invoked for the performance step (if unset a placeholder runs).
+  CHECKPOINT_SOAK_ARGS  Extra arguments forwarded to 'cargo test --test checkpoint_soak' after '--ignored'.
 
 Set CHECK_ALL_CONFIG to point at a config file, or pass --config.
 EOF
@@ -115,6 +119,7 @@ if [[ -n "${CONFIG_PATH}" ]]; then
 fi
 
 SKIP_PARITY="${SKIP_PARITY:-0}"
+SKIP_SOAK="${SKIP_SOAK:-0}"
 SKIP_PERF="${SKIP_PERF:-0}"
 SKIP_AUDIT="${SKIP_AUDIT:-0}"
 
@@ -122,6 +127,9 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --skip-parity)
             SKIP_PARITY=1
+            ;;
+        --skip-soak)
+            SKIP_SOAK=1
             ;;
         --skip-perf)
             SKIP_PERF=1
@@ -166,6 +174,23 @@ run_clippy() {
 run_tests() {
     log_step "cargo test"
     run_cmd cargo test --workspace --all-targets
+}
+
+run_checkpoint_soak() {
+    if [[ "${SKIP_SOAK}" -eq 1 ]]; then
+        log_step "checkpoint soak suite (skipped)"
+        log_info "SKIP_SOAK=1 - skipping checkpoint soak suite."
+        return
+    fi
+
+    log_step "checkpoint soak suite"
+    local soak_extra_args=()
+    if [[ -n "${CHECKPOINT_SOAK_ARGS:-}" ]]; then
+        # shellcheck disable=SC2206 # allow users to pass multiple args separated by spaces
+        soak_extra_args=(${CHECKPOINT_SOAK_ARGS})
+    fi
+
+    run_cmd cargo test --test checkpoint_soak -- --ignored "${soak_extra_args[@]}"
 }
 
 run_audit() {
@@ -256,6 +281,7 @@ main() {
     run_fmt
     run_clippy
     run_tests
+    run_checkpoint_soak
     run_audit
     run_parity
     run_perf

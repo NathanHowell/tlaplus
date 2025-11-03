@@ -42,6 +42,7 @@ const PLACEHOLDER_SPEC_HASH: &str =
     "0000000000000000000000000000000000000000000000000000000000000000";
 
 #[test]
+#[ignore = "checkpoint soak suite runs via scripts/dev/check-all.sh"]
 fn placeholder_large_checkpoint_soaks_resume() -> Result<()> {
     for scenario in PLACEHOLDER_SCENARIOS {
         let checkpoint = generate_placeholder_checkpoint(scenario)
