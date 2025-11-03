@@ -1,0 +1,229 @@
+---
+description: "Task list for Native TLC Command Line Tool"
+---
+
+# Tasks: Native TLC Command Line Tool
+
+**Input**: Design documents from `/specs/001-rewrite-tlc/`  
+**Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/
+
+**Tests**: Only include dedicated test tasks when stories or guardrails require them.  
+**Organization**: Tasks are grouped by user story to keep increments independently deliverable and testable.
+
+**Constitution Guardrails**:
+- Establish automated verification (cargo test, parity harness, perf checks) before major feature work.
+- Prefer idiomatic Rust crates (`clap`, `serde`, `rayon`, `crossbeam`, `rusqlite`, `tracing`, `indicatif`) instead of ad-hoc reimplementations.
+- Provide deterministic reproduction scripts and benchmark harnesses with recorded toolchain versions.
+- Keep diagnostics, telemetry, and documentation aligned with new CLI behaviors so downstream tooling adapts smoothly.
+- Track performance and migration risks, escalating regressions before decommissioning the Java TLC build.
+
+## Format: `[ID] [P?] [Story] Description`
+
+- **[P]**: Task can run in parallel (different files, no blocking dependencies).
+- **[Story]**: Applies only to user story phases (US1, US2, US3).
+- All descriptions include repository-relative file paths.
+
+## Phase 1: Setup (Shared Infrastructure)
+
+**Purpose**: Create the Rust workspace skeleton and toolchain guardrails required by every subsequent phase.
+
+- [ ] T001 Pin Rust toolchain to version 1.91.0 in `rust-toolchain.toml`
+- [ ] T002 Configure TLC workspace members and profiles in the root `Cargo.toml`
+- [ ] T003 [P] Scaffold shared utilities crate manifest with serde/tracing defaults in `src/util/Cargo.toml`
+- [ ] T004 [P] Scaffold CLI crate manifest with `clap` derive support in `src/cli/Cargo.toml`
+- [ ] T005 [P] Scaffold engine crate manifest with `rayon`/`crossbeam` dependencies in `src/engine/Cargo.toml`
+- [ ] T006 [P] Scaffold checkpoint crate manifest with `rusqlite` features in `src/checkpoint/Cargo.toml`
+- [ ] T007 [P] Scaffold telemetry crate manifest with `tracing-subscriber` and `tracing-opentelemetry` in `src/telemetry/Cargo.toml`
+- [ ] T008 [P] Scaffold progress crate manifest with `indicatif` and `serde_json` in `src/progress/Cargo.toml`
+
+---
+
+## Phase 2: Foundational (Blocking Prerequisites)
+
+**Purpose**: Deliver shared data models, telemetry, persistence, and automation harnesses that every user story depends on.
+
+**⚠️ CRITICAL**: No user story work can begin until this phase is complete.
+
+- [ ] T009 Implement `SpecificationPackage`, `RunConfiguration`, and `ExplorationRun` structs with serde validation in `src/util/src/model.rs`
+- [ ] T010 [P] Implement deterministic `StateFingerprint` utilities and helpers in `src/util/src/fingerprint.rs`
+- [ ] T011 Wire tracing subscribers and OTLP gating for telemetry bootstrap in `src/telemetry/src/lib.rs`
+- [ ] T012 [P] Implement SQLite checkpoint store initialization with WAL tuning in `src/checkpoint/src/lib.rs`
+- [ ] T013 Define checkpoint metadata helpers for `CheckpointSnapshot` management in `src/checkpoint/src/snapshot.rs`
+- [ ] T014 Configure parity harness crate manifest and legacy TLC launcher shim in `tests/golden/Cargo.toml`
+- [ ] T015 [P] Stub parity runner scaffolding that captures diff artifacts in `tests/golden/src/parity_runner.rs`
+- [ ] T016 [P] Scaffold property-based engine invariants using `proptest` in `tests/unit/engine_prop.rs`
+- [ ] T017 Publish deterministic verification script chaining fmt/clippy/tests/audit/parity/perf in `scripts/dev/check-all.sh`
+- [ ] T018 Document shared development workflow and constitution guardrails in `docs/migration/tlc-rust.md`
+- [ ] T019 Curate TLC backlog scope and owners in `specs/001-rewrite-tlc/checklists/backlog.csv`
+
+**Checkpoint**: Foundation ready — user story implementation can now begin in parallel.
+
+---
+
+## Phase 3: User Story 1 - Preserve TLC Parity (Priority: P1) 🎯 MVP
+
+**Goal**: Spec engineers can run the new `tlc` binary with existing specs/configs and match legacy TLC behavior end-to-end.  
+**Independent Test**: Execute the standard TLC regression suite with only the new binary and confirm outputs, exit codes, and traces match the legacy baseline.
+
+### Tests & Validation
+
+- [ ] T020 [P] [US1] Extend parity runner to invoke new TLC binary and generate diff reports in `tests/golden/src/parity_runner.rs`
+- [ ] T021 [US1] Curate regression manifest listing parity specs and legacy expectations in `tests/golden/fixtures/manifest.toml`
+- [ ] T022 [US1] Integrate property-based engine invariants into CI gating in `tests/golden/src/parity_runner.rs`
+
+### Implementation Tasks
+
+- [ ] T023 [P] [US1] Implement `tlc run`/`tlc resume` command definitions and flag parity in `src/cli/src/commands.rs`
+- [ ] T024 [P] [US1] Implement spec/config ingestion pipeline mapping to data models in `src/cli/src/input_loader.rs`
+- [ ] T025 [US1] Implement exploration engine entrypoint with invariant checking in `src/engine/src/lib.rs`
+- [ ] T026 [P] [US1] Implement checkpoint resume flow and lineage tracking in `src/engine/src/resume.rs`
+- [ ] T027 [P] [US1] Implement CLI output and diagnostics formatter matching legacy summaries in `src/cli/src/output.rs`
+- [ ] T028 [US1] Wire CLI binary main to engine, telemetry, and checkpoint modules in `src/cli/src/main.rs`
+
+**Checkpoint**: Legacy parity verified — release-ready MVP.
+
+---
+
+## Phase 4: User Story 2 - Track Long Runs Visually (Priority: P2)
+
+**Goal**: Spec engineers can observe run progress and estimated coverage directly in the terminal during long explorations.  
+**Independent Test**: Launch a long-running model on the new `tlc` and verify the progress indicator renders, updates, and completes without legacy tooling.
+
+### Tests & Validation
+
+- [ ] T029 [P] [US2] Add NDJSON schema regression covering progress events in `tests/integration/progress_ndjson.rs`
+
+### Implementation Tasks
+
+- [ ] T030 [P] [US2] Implement `ProgressEvent` models and NDJSON writer in `src/progress/src/ndjson.rs`
+- [ ] T031 [P] [US2] Implement TTY progress renderer with `indicatif` in `src/progress/src/tty.rs`
+- [ ] T032 [US2] Integrate progress event emission into the engine loop in `src/engine/src/progress.rs`
+- [ ] T033 [US2] Wire CLI `--progress` flag resolution to renderer selection in `src/cli/src/commands.rs`
+- [ ] T034 [US2] Document progress modes, NDJSON contract, and Toolbox considerations in `docs/migration/tlc-progress.md`
+- [ ] T035 [US2] Implement `--no-color` flag handling and validation in `src/cli/src/commands.rs` and `tests/integration/progress_tty.rs`
+
+**Checkpoint**: Visual and non-TTY progress experiences complete.
+
+---
+
+## Phase 5: User Story 3 - Scale Across Cores (Priority: P3)
+
+**Goal**: Infrastructure engineers can configure multi-core execution and throttle resources to outperform single-core runs safely.  
+**Independent Test**: Run a representative spec once in single-core mode and once with configured multi-core workers to verify runtime improvement with consistent results.
+
+### Tests & Validation
+
+- [ ] T036 [US3] Add multi-core scaling integration scenario covering throughput deltas in `tests/integration/engine_scaling.rs`
+- [ ] T037 [P] [US3] Add benchmarking harness that records scaling metrics in `benches/engine_scaling.rs`
+
+### Implementation Tasks
+
+- [ ] T038 [P] [US3] Implement worker scheduler leveraging `rayon` for state exploration in `src/engine/src/scheduler.rs`
+- [ ] T039 [P] [US3] Implement crossbeam-backed work queues and throttling in `src/engine/src/work_queue.rs`
+- [ ] T040 [US3] Integrate worker configuration, memory guards, and defaults in `src/engine/src/config.rs`
+- [ ] T041 [US3] Wire CLI worker/memory flags and defaults into command parsing in `src/cli/src/commands.rs`
+- [ ] T042 [P] [US3] Emit worker utilization telemetry for observability in `src/telemetry/src/workers.rs`
+
+**Checkpoint**: Multi-core execution tuned and benchmarked.
+
+---
+
+## Final Phase: Polish & Cross-Cutting Concerns
+
+**Purpose**: Close documentation, packaging, and reproducibility gaps that span all user stories.
+
+- [ ] T043 [P] Refresh quickstart instructions with new CLI flags and workflows in `specs/001-rewrite-tlc/quickstart.md`
+- [ ] T044 Update migration guidance and stakeholder notes in `docs/migration/tlc-rust.md`
+- [ ] T045 [P] Capture final parity, performance, and cargo-audit results in `specs/001-rewrite-tlc/parity-ledger.md`
+- [ ] T046 [P] Add release packaging manifest for `cargo dist` in `dist/cargo-dist.toml`
+- [ ] T047 [P] Update risk register, backlog disposition, and mitigation checkpoints in `docs/migration/tlc-risk-register.md`
+- [ ] T048 Run fmt/clippy/tests/audit/parity/perf verification script in `scripts/dev/check-all.sh`
+- [ ] T049 Publish support and troubleshooting guidance for the Rust TLC CLI in `docs/migration/tlc-support.md`
+- [ ] T050 Share final stakeholder update and archive summary in `docs/migration/tlc-rust.md`
+
+---
+
+## Dependencies & Execution Order
+
+### Phase Dependencies
+
+- **Setup (Phase 1)**: No dependencies — start immediately.
+- **Foundational (Phase 2)**: Depends on Phase 1 completion; blocks all user stories.
+- **User Story Phases (3–5)**: Each depends on Phase 2; proceed in priority order or parallel once dependencies clear.
+- **Polish (Final Phase)**: Depends on completion of targeted user stories and foundational verification.
+
+### User Story Dependencies
+
+- **User Story 1 (P1)**: Requires foundational telemetry, persistence, parity harness, and backlog readiness (T009–T019); no downstream dependencies.
+- **User Story 2 (P2)**: Requires US1 engine hooks plus foundational progress crate manifest; integrates with US1 outputs but testable independently.
+- **User Story 3 (P3)**: Requires US1 engine baseline; operates independently of US2 progress features.
+
+### Within Each User Story
+
+- Tests (if present) should be authored before implementation tasks consume their contracts.
+- Shared modules (`src/cli/src/commands.rs`, `src/engine/src/lib.rs`) should merge sequentially per story to avoid conflicts.
+- Complete story validation (regression suite, progress demo, scaling benchmarks) before moving to the next increment.
+
+### Parallel Opportunities
+
+- Setup manifests (T003–T008) can run concurrently.
+- Foundational tasks marked [P] (T010, T012, T015, T016) can proceed in parallel once workspace files exist.
+- After Phase 2, separate teams can tackle US1, US2, and US3 concurrently as long as shared files are sequenced.
+- Tests marked [P] within stories (e.g., T020, T030, T038) can execute alongside implementation on different files.
+
+---
+
+## Parallel Example: User Story 1
+
+```bash
+# Parallel tasks to accelerate parity validation
+Task: "T020 Extend parity runner to invoke new TLC binary and generate diff reports in tests/golden/src/parity_runner.rs"
+Task: "T024 Implement spec/config ingestion pipeline mapping to data models in src/cli/src/input_loader.rs"
+```
+
+## Parallel Example: User Story 2
+
+```bash
+# Parallel tasks to deliver progress telemetry
+Task: "T030 Implement ProgressEvent models and NDJSON writer in src/progress/src/ndjson.rs"
+Task: "T031 Implement TTY progress renderer with indicatif in src/progress/src/tty.rs"
+```
+
+## Parallel Example: User Story 3
+
+```bash
+# Parallel tasks to optimize multi-core scaling
+Task: "T038 Implement worker scheduler leveraging rayon for state exploration in src/engine/src/scheduler.rs"
+Task: "T039 Implement crossbeam-backed work queues and throttling in src/engine/src/work_queue.rs"
+```
+
+---
+
+## Implementation Strategy
+
+### MVP First (User Story 1)
+
+1. Finish Phases 1–2 to guarantee parity harness, telemetry, and persistence exist.
+2. Complete Phase 3 tasks (T020–T028) and run regression suite from `scripts/dev/check-all.sh`.
+3. Hold release review after parity is certified.
+
+### Incremental Delivery
+
+1. Deliver MVP (US1) and publish updated regression results.
+2. Layer progress visualization (US2) and publish NDJSON/TTY documentation.
+3. Add multi-core scaling (US3) and capture benchmark deltas.
+4. Execute Final Phase polish tasks to prepare migration guidance and packaging.
+
+### Parallel Team Strategy
+
+1. Shared effort on Setup and Foundational phases (T001–T019).
+2. Assign US1 to engine/CLI specialists, US2 to progress/UX engineers, and US3 to performance engineers.
+3. Coordinate shared file merges (`src/cli/src/commands.rs`, `src/engine/src/lib.rs`) via feature branches to keep stories independent.
+
+---
+
+## Notes
+
+- Tasks marked [P] reside in separate files or scripts and can proceed independently.
+- Each user story includes explicit validation tasks to remain independently testable.
+- Update documentation and scripts as part of the same tasks to keep parity with implementation.
