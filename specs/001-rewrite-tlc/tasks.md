@@ -52,7 +52,7 @@ description: "Task list for Native TLC Command Line Tool"
 - [X] T074 Add integration tests confirming telemetry defaults to local-only spans with spec/module identifiers redacted in `tests/integration/telemetry_defaults.rs`
 - [X] T075 Document remote telemetry opt-in flow and enforce CLI/ENV gating in `docs/migration/tlc-telemetry.md`
 - [X] T078 Implement checkpoint manifest versioning and mismatch rejection in `src/checkpoint/src/version.rs`
-- [ ] T079 Add negative resume integration test covering stale checkpoint manifests in `tests/integration/checkpoint_version.rs`
+- [X] T079 Add negative resume integration test covering stale checkpoint manifests in `tests/integration/checkpoint_version.rs`
 - [ ] T082 [P] Capture cross-platform fingerprint fixtures and determinism tests in `tests/unit/fingerprint_determinism.rs`
 - [ ] T014 Configure parity harness crate manifest and legacy TLC launcher shim in `tests/golden/Cargo.toml`
 - [ ] T015 [P] Stub parity runner scaffolding that captures diff artifacts in `tests/golden/src/parity_runner.rs`
