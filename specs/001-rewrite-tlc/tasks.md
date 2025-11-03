@@ -63,7 +63,7 @@ description: "Task list for Native TLC Command Line Tool"
 - [X] T018 Document shared development workflow and constitution guardrails in `docs/migration/tlc-rust.md`
 - [X] T019 Curate TLC backlog scope, assign owners, and define remediation status taxonomy in `specs/001-rewrite-tlc/checklists/backlog.csv`
 - [X] T051 Document backlog remediation workflow (status codes, exit criteria, reviewer checklist) in `specs/001-rewrite-tlc/checklists/README.md`
-- [ ] T052 Record maintainer sign-off for resolved or retired backlog items directly in `specs/001-rewrite-tlc/checklists/backlog.csv`
+- [X] T052 Record maintainer sign-off for resolved or retired backlog items directly in `specs/001-rewrite-tlc/checklists/backlog.csv`
 
 **Checkpoint**: Foundation ready — user story implementation can now begin in parallel.
 
