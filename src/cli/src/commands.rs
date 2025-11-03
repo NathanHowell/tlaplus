@@ -5,6 +5,7 @@ use std::str::FromStr;
 use clap::{
     builder::PossibleValue, value_parser, ArgAction, Args, Parser, Subcommand, ValueEnum, ValueHint,
 };
+use serde::{Deserialize, Serialize};
 
 /// Root CLI entry point defining the `tlc` command surface.
 #[derive(Debug, Parser)]
@@ -276,7 +277,7 @@ impl FromStr for ParameterOverride {
 }
 
 /// Formats supported by `--dump-trace`.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum TraceDumpFormat {
     HumanReadable,
     Action,

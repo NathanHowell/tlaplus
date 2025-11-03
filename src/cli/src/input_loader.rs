@@ -9,6 +9,7 @@ use std::{
 };
 
 use blake3::Hasher;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tlc_util::{
     model::PathKind, Blake3Digest, ProgressMode as UtilProgressMode, RunConfiguration,
@@ -23,8 +24,7 @@ use crate::commands::{
 };
 
 /// End-to-end result of translating a `tlc run` invocation into runtime inputs.
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunInputs {
     pub specification: SpecificationPackage,
     pub configuration: RunConfiguration,
@@ -32,8 +32,7 @@ pub struct RunInputs {
 }
 
 /// Additional runtime options that accompany [`RunConfiguration`].
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunOptions {
     pub checkpoint_dir: Option<PathBuf>,
     pub checkpoint_interval: Option<Duration>,
@@ -49,8 +48,7 @@ pub struct RunOptions {
 }
 
 /// Configuration for error trace dumping.
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DumpTraceConfig {
     pub format: TraceDumpFormat,
     pub output_path: PathBuf,
