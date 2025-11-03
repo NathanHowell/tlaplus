@@ -1,25 +1,10 @@
+mod commands;
+
 use clap::Parser;
-use serde::{Deserialize, Serialize};
 use tracing_subscriber::EnvFilter;
 
+use commands::{Cli, Command};
 use tlc_progress::ProgressEvent;
-
-/// Minimal argument placeholder to prove the CLI wiring.
-#[derive(Debug, Parser, Serialize, Deserialize)]
-#[command(
-    name = "tlc",
-    version,
-    about = "Rust-native TLC command-line interface (scaffold)"
-)]
-struct Cli {
-    /// Path to the primary specification module.
-    #[arg(long)]
-    spec: Option<String>,
-
-    /// Optional configuration file path.
-    #[arg(long)]
-    config: Option<String>,
-}
 
 fn init_tracing() {
     let filter = std::env::var("TLC_LOG").unwrap_or_else(|_| "info".to_string());
@@ -31,7 +16,7 @@ fn init_tracing() {
 }
 
 fn main() -> anyhow::Result<()> {
-    let _args = Cli::parse();
+    let cli = Cli::parse();
     let telemetry_config = tlc_telemetry::TelemetryConfig::default();
     let _telemetry_guard = match tlc_telemetry::init_tracing(telemetry_config.clone()) {
         Ok(guard) => guard,
@@ -50,5 +35,15 @@ fn main() -> anyhow::Result<()> {
         message: "workspace scaffolding".into(),
     })?;
     tracing::info!("tlc CLI scaffolding initialized");
+
+    match cli.command {
+        Command::Run(run) => {
+            tracing::info!(?run, "executing `tlc run` (implementation pending)");
+        }
+        Command::Resume(resume) => {
+            tracing::info!(?resume, "executing `tlc resume` (implementation pending)");
+        }
+    }
+
     Ok(())
 }
