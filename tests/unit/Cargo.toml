@@ -9,7 +9,13 @@ publish = false
 serde.workspace = true
 serde_json.workspace = true
 tlc-util = { path = "../../src/util" }
+tlc-engine = { path = "../../src/engine" }
+proptest.workspace = true
 
 [[test]]
 name = "fingerprint_determinism"
 path = "fingerprint_determinism.rs"
+
+[[test]]
+name = "engine_prop"
+path = "engine_prop.rs"
