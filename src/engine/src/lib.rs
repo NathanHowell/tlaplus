@@ -12,6 +12,10 @@ use tlc_util::{
     ValidationError,
 };
 
+mod resume;
+
+pub use resume::{prepare_resume, ResumeContext, ResumeError, ResumeLineage, ResumeRequest};
+
 /// Slice of the frontier assigned to a single worker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FrontierSlice {
@@ -111,11 +115,10 @@ impl EngineOptions {
             return Err(EngineError::MissingTelemetryEndpoint);
         }
 
-        let post_conditions =
-            post_conditions
-                .into_iter()
-                .map(normalize_post_condition)
-                .collect::<Result<Vec<_>>>()?;
+        let post_conditions = post_conditions
+            .into_iter()
+            .map(normalize_post_condition)
+            .collect::<Result<Vec<_>>>()?;
 
         Ok(EngineOptions {
             checkpoint_dir,

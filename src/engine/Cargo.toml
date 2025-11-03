@@ -18,9 +18,10 @@ thiserror.workspace = true
 tracing.workspace = true
 
 tlc-util = { path = "../util" }
+tlc-checkpoint = { path = "../checkpoint" }
+ulid.workspace = true
 
 [dev-dependencies]
 blake3.workspace = true
 tempfile.workspace = true
-ulid.workspace = true
 uuid.workspace = true
