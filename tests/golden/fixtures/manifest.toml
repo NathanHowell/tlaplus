@@ -133,14 +133,13 @@ notes = "Placeholder capturing large-checkpoint soak scenarios; awaits finalized
 [[spec]]
 slug = "unicode_legacy_flags"
 display = "Unicode CLI Legacy"
-status = "pending"
+status = "active"
 relative_path = "../fixtures/legacy/unicode"
 modules = ["UnicodeLegacy.tla"]
 config = "UnicodeLegacy.cfg"
 origin = "specs/001-rewrite-tlc/tasks.md#T067"
-tags = ["unicode", "legacy_flag", "pending"]
-blocked_on = ["T067"]
+tags = ["unicode", "legacy_flag"]
 [spec.expectation]
-outcome = "pending"
+outcome = "success"
 exit_code = 0
-notes = "Tracks upcoming regression exercising UTF-8 module names and deprecated CLI flags; activated once legacy fixtures land under T067."
+notes = "Fixture exercises UTF-8 module sources and legacy CLI aliases; harness metadata enumerates required deprecated flags."

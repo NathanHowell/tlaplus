@@ -1,0 +1,10 @@
+name = "unicode_legacy_flags"
+description = "Legacy TLC regression covering Unicode inputs and deprecated CLI options."
+
+[cli]
+deprecated_flags = ["-tool", "-nowarning", "-noTE", "-noTEBin", "-modelcheck"]
+notes = "Rust CLI should continue to accept these aliases but emit migration hints."
+
+[unicode]
+identifiers = ["状態", "Δcount", "選択", "ΩLegacyFlag"]
+strings = ["開始", "記録", "✓", "✗", "🚀"]

@@ -79,7 +79,7 @@ description: "Task list for Native TLC Command Line Tool"
 - [X] T020 [P] [US1] Extend parity runner to invoke new TLC binary and generate diff reports in `tests/golden/src/parity_runner.rs`
 - [X] T021 [US1] Curate regression manifest listing parity specs and legacy expectations in `tests/golden/fixtures/manifest.toml`
 - [X] T022 [US1] Integrate property-based engine invariants into CI gating in `tests/golden/src/parity_runner.rs`
-- [ ] T067 [US1] Add regression fixtures that exercise legacy Unicode inputs and deprecated CLI flags in `tests/golden/fixtures/legacy/`
+- [X] T067 [US1] Add regression fixtures that exercise legacy Unicode inputs and deprecated CLI flags in `tests/golden/fixtures/legacy/`
 - [ ] T068 [US1] Validate ingestion pipeline behavior for legacy quirks in `tests/golden/src/parity_runner.rs`
 
 ### Implementation Tasks
