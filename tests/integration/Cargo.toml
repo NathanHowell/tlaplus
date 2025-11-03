@@ -11,6 +11,7 @@ serde_json.workspace = true
 tempfile.workspace = true
 tracing.workspace = true
 rusqlite.workspace = true
+ulid.workspace = true
 tlc-telemetry = { path = "../../src/telemetry" }
 tlc-util = { path = "../../src/util" }
 tlc-checkpoint = { path = "../../src/checkpoint" }
@@ -22,3 +23,7 @@ path = "telemetry_defaults.rs"
 [[test]]
 name = "checkpoint_version"
 path = "checkpoint_version.rs"
+
+[[test]]
+name = "checkpoint_soak"
+path = "checkpoint_soak.rs"
