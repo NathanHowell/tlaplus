@@ -422,7 +422,7 @@ impl RunConfiguration {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ExplorationRun {
     pub run_id: Ulid,
     pub spec_package_id: Uuid,
