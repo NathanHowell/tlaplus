@@ -1,17 +1,17 @@
 # Quickstart — Native TLC Command Line Tool
 
 ## Prerequisites
-- Rust toolchain pinned to stable 1.83 (`rustup toolchain install 1.83.0 && rustup override set 1.83.0` in repo root).
+- Rust toolchain pinned to stable 1.91 (`rustup toolchain install 1.91.0 && rustup override set 1.91.0` in repo root).
 - `cargo binstall` (optional) for installing helper binaries such as `cargo-nextest`.
 - Java 17 runtime to execute the legacy TLC binary for parity harness comparisons.
-- `zstd` CLI (optional) for inspecting compressed checkpoint chunks.
+- SQLite tooling (`sqlite3` CLI) for inspecting checkpoint databases when debugging.
 
 ## Repository Setup
 ```bash
 git clone https://github.com/tlaplus/tlaplus.git
 cd tlaplus
 git checkout 001-rewrite-tlc
-rustup show  # confirm stable 1.83 active
+rustup show  # confirm stable 1.91 active
 cargo fetch  # pre-warm crates
 ```
 
@@ -21,7 +21,7 @@ cargo build -p tlc
 ```
 
 - Binary output: `target/debug/tlc`.
-- Use `cargo build --release -p tlc` for benchmark runs.
+- Use `cargo build --release -p tlc` for benchmark runs or `cargo dist build` to emit platform packages.
 
 ## Running TLC
 ```bash

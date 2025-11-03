@@ -1,99 +1,72 @@
 # Implementation Plan: Native TLC Command Line Tool
 
-**Branch**: `001-rewrite-tlc` | **Date**: 2025-11-02 | **Spec**: `/specs/001-rewrite-tlc/spec.md`
+**Branch**: `[001-rewrite-tlc]` | **Date**: 2025-11-02 | **Spec**: `/specs/001-rewrite-tlc/spec.md`
 **Input**: Feature specification from `/specs/001-rewrite-tlc/spec.md`
 
 **Note**: This template is filled in by the `/speckit.plan` command. See `.specify/templates/commands/plan.md` for the execution workflow.
 
 ## Summary
 
-Port the TLC model checker to a native Rust CLI that preserves full behavioral parity with the legacy Java tool, delivers 20% faster multi-core execution, and introduces an integrated TTY progress bar plus NDJSON progress telemetry for non-interactive workflows. The rewrite must retire Java components once golden parity and toolchain gates pass, backed by Rust-native checkpointing, OpenTelemetry instrumentation, and nightly regression/performance automation.
+Deliver a Rust-native `tlc` CLI that preserves the full legacy TLC feature surface while introducing a multi-core exploration engine, resumable checkpoints, interactive progress reporting, and structured telemetry built on idiomatic Rust crates.
 
 ## Technical Context
 
-<!--
-  ACTION REQUIRED: Replace the content in this section with the technical details
-  for the project. The structure here is presented in advisory capacity to guide
-  the iteration process.
--->
-
-**Language/Version**: Rust (latest stable via `rustup`, pinned with `rust-toolchain.toml`)  
-**Primary Dependencies**: `clap` (derive), `serde`/`serde_json`, `tracing` + `tracing-subscriber` + `tracing-opentelemetry`, `indicatif`, `rayon`, `crossbeam`  
-**Storage**: Chunked `serde` + `zstd` blobs indexed by `sled` embedded key-value store; JSON manifest alongside  
-**Testing**: `cargo test`, `cargo nextest`, parity harness via `tlc-parity` crate diffing Java vs Rust, property-based tests with `proptest`  
-**Target Platform**: macOS (x86_64/arm64), Linux (x86_64/arm64), Windows (x86_64)  
-**Project Type**: Native CLI tool within Rust workspace  
-**Performance Goals**: ≥20% throughput gain vs Java TLC on 16-core benchmark suite; ≤5% memory regression  
-**Constraints**: 10–100 GB checkpoint support; deterministic 128-bit fingerprints; OpenTelemetry tracing + NDJSON progress schema; zero long-lived Java shims post-parity; CLI-only surface (future distributed orchestration via containers, no RPC); legacy `_PERIODIC` and `_RL_REWARD` hooks retired with documented migration guidance  
-**Scale/Scope**: Full TLC feature parity including backlog fixes; single-host multi-core GA with future distributed extension seams
+**Language/Version**: Rust 1.91.0 (stable via `rustup`, pinned in `rust-toolchain.toml`)  
+**Primary Dependencies**: `clap` (derive), `serde`/`serde_json`, `tracing` + `tracing-subscriber` + `tracing-opentelemetry`, `indicatif`, `rayon`, `crossbeam`, `rusqlite` for SQLite-backed checkpoints  
+**Storage**: SQLite checkpoints (via `rusqlite`) supporting 10–100 GB with WAL mode and serde-managed binary blobs  
+**Testing**: `cargo test`, golden regression harness diffing against the Java TLC binary, and property-based engine tests (`proptest`) enforced locally and in CI  
+**Target Platform**: Cross-platform CLI (Linux/macOS/Windows) with NDJSON progress for non-TTY and `cargo dist`-driven Windows packaging  
+**Project Type**: Rust workspace producing the `tlc` binary plus shared libraries  
+**Performance Goals**: ≥20 % throughput improvement and ≤5 % additional peak memory versus Java TLC at 16 workers; responsive progress and telemetry under large workloads  
+**Constraints**: Deterministic 128-bit state fingerprints, resumable checkpoints, JSON progress stream for non-TTY runs, explicit resume flag, default core detection (`max(logical−1,1)`)  
+**Scale/Scope**: Full TLC spec/config coverage, nightly regression + telemetry integration, single-host multi-core with future-ready distributed seams
 
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-- **Rust-First Modernization**: All new code ships in Rust, leveraging best-of-class crates (`tracing`, `rayon`, `sled`, `tokio`) to reimagine the design; parity harness wrappers may invoke Java temporarily, but shims must be retired after two consecutive green parity releases documented in `docs/migration/tlc-rust.md`.
-- **Behavioral Parity & Safety Nets**: Nightly golden harness runs full TLC regression corpus through both binaries via `tlc-parity`, owned by the Rust TLC migration team, gating merges before GA.
-- **Idiomatic Performance & Concurrency**: Use `rayon` + `crossbeam` work-stealing scheduler, capture benchmarks via `cargo bench`/`criterion` on Paxos/Raft suites, and require review + dedicated tests for any `unsafe`.
-- **Evergreen Toolchain & Dependencies**: Pin Rust 1.83 stable in `rust-toolchain.toml`, enforce `fmt`, `clippy -D warnings`, `test`, `nextest`, and `cargo audit` per CI run, document upgrades.
-- **Transparent Migration & Collaboration**: Publish bi-weekly updates to maintainers mailing list + Slack, maintain migration register, document retirement of MailSender, `_PERIODIC`, and `_RL_REWARD`, and secure Toolbox release manager sign-off ahead of Java removal.
+- **Rust-First Modernization**: Rewrite replaces Java TLC with pure Rust modules and uses best-of-class crates (`clap`, `serde`, `tracing`, `rayon`, `crossbeam`, `rusqlite`), with SQLite checkpoints providing the Rust-native persistence layer.
+- **Behavioral Parity & Safety Nets**: Plan includes the full TLC regression suite, golden trace comparisons, and documentation of any telemetry output differences to keep parity with the Java baseline until decommissioned.
+- **Idiomatic Performance & Concurrency**: Multi-core execution relies on `rayon`/`crossbeam` worker pools, benchmarked against Paxos/Raft/mutual exclusion workloads, with profiling and telemetry hooks scheduled to detect regressions.
+- **Evergreen Toolchain & Dependencies**: Work targets Rust 1.91.0, enforcing `cargo fmt`, `cargo clippy -D warnings`, `cargo test`, and `cargo audit` gates within CI and local workflows.
+- **Transparent Migration & Collaboration**: Spec `/specs/001-rewrite-tlc/spec.md` drives scope, stakeholders include TLC maintainers, Toolbox integrators, release managers, and community moderators, and communications run via bi-weekly updates, migration notes, and release documentation.
 
-> Constitution gates satisfied for research kickoff. Post-Phase 1 review: design artifacts uphold principles; no remediation required.
+> If any checklist item is unmet, record the remediation plan and pause execution until resolved.
+
+**Post-Design Re-evaluation (Phase 1 Completion)**: Technical design confirms all gates remain satisfied with Rust 1.91.0, SQLite-backed checkpoints via `rusqlite`, golden parity harness coverage, and CI-enforced formatting/linting. No constitution violations identified.
 
 ## Project Structure
 
 ### Documentation (this feature)
 
 ```text
-specs/[###-feature]/
-├── plan.md              # This file (/speckit.plan command output)
-├── research.md          # Phase 0 output (/speckit.plan command)
-├── data-model.md        # Phase 1 output (/speckit.plan command)
-├── quickstart.md        # Phase 1 output (/speckit.plan command)
-├── contracts/           # Phase 1 output (/speckit.plan command)
-└── tasks.md             # Phase 2 output (/speckit.tasks command - NOT created by /speckit.plan)
+specs/001-rewrite-tlc/
+├── plan.md
+├── research.md
+├── data-model.md
+├── quickstart.md
+├── contracts/
+└── tasks.md
 ```
 
 ### Source Code (repository root)
-<!--
-  ACTION REQUIRED: Replace the placeholder tree below with the concrete layout
-  for this feature. Delete unused options and expand the chosen structure with
-  real paths (e.g., apps/admin, packages/something). The delivered plan must
-  not include Option labels.
--->
 
 ```text
-rust/
-├── Cargo.toml
-├── crates/
-│   ├── tlc/                  # Main binary + engine modules
-│   │   ├── src/
-│   │   │   ├── cli/
-│   │   │   ├── engine/
-│   │   │   ├── storage/
-│   │   │   ├── progress/
-│   │   │   └── telemetry/
-│   │   ├── benches/
-│   │   └── tests/
-│   ├── tlc-parity/           # Golden harness + diff utilities
-│   │   ├── src/
-│   │   └── tests/
-│   ├── tlc-checkpoint/       # Checkpoint serialization + sled bindings
-│   │   ├── src/
-│   │   └── benches/
-│   └── tlc-cli-support/      # Shared CLI UX helpers (progress/formatting)
-│       └── src/
-├── xtask/                    # Developer automation tasks
-│   └── src/
-└── tools/
-    └── parity/               # Scripts + fixtures for regression suite
+src/
+├── cli/                 # Clap-driven argument parsing and command dispatch
+├── engine/              # Core TLC exploration engine and worker orchestration
+├── checkpoint/          # Checkpoint serialization and embedded DB adapters
+├── telemetry/           # Tracing subscribers, OTLP exporters, diagnostics
+├── progress/            # TTY progress bars and NDJSON emitters
+└── util/                # Fingerprinting, config loading, shared helpers
 
 tests/
-├── integration/              # End-to-end CLI exercises
-├── parity/                   # Legacy vs Rust diff fixtures
-└── smoke/                    # Fast deterministic coverage
+├── golden/              # Golden comparisons against legacy TLC outputs
+├── integration/         # End-to-end CLI, checkpoint resume, telemetry tests
+└── unit/                # Module-level and property-based engine tests
 ```
 
-**Structure Decision**: Adopt a `rust/` workspace housing `tlc` (binary), support crates (`tlc-parity`, `tlc-checkpoint`, `tlc-cli-support`), and shared tooling (`xtask`, `tools/parity`). Integration/parity/smoke tests live under `tests/` to keep regression assets separate from crate sources.
+**Structure Decision**: Build a Rust workspace rooted under `src/` with focused modules for CLI, engine, persistence, and telemetry plus aligned test suites to enforce parity and concurrency safety.
 
 ## Complexity Tracking
 
@@ -101,5 +74,3 @@ tests/
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|
-| [e.g., 4th project] | [current need] | [why 3 projects insufficient] |
-| [e.g., Repository pattern] | [specific problem] | [why direct DB access insufficient] |

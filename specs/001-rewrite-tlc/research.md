@@ -1,41 +1,46 @@
-# Phase 0 Research — Native TLC Command Line Tool
+## Phase 0 Research Notes
 
-## Task: Research primary dependencies for the Rust TLC CLI
-- **Decision**: Use `clap` (derive API) for CLI parsing, `serde`/`serde_json` for config + checkpoint serialization metadata, `tracing` + `tracing-subscriber` + `opentelemetry` exporters for telemetry, `indicatif` for TTY progress rendering, and `rayon` + `crossbeam` for worker scheduling primitives.
-- **Rationale**: These crates are mature, well-maintained, and align with Rust ecosystem idioms. `clap` ensures parity with existing TLC flags, `indicatif` provides a customizable multi-thread-safe progress UI, while `rayon`/`crossbeam` support work-stealing and lock-free queues typical for state space exploration.
-- **Alternatives considered**: `argh` or `gumdrop` lack advanced flag parity and validation; `structopt` is effectively superseded by `clap`. `tokio` async runtime is optimized for I/O-bound workloads and would add overhead for CPU-bound exploration. Custom progress rendering would increase maintenance without exceeding `indicatif` capabilities.
+### Rust Toolchain Version
+- Decision: Pin Rust 1.91.0 in a repository-level `rust-toolchain.toml` and use that toolchain for all TLC workspace crates.
+- Rationale: 1.91.0 is the current stable release, satisfying the constitution’s requirement to stay on the latest toolchain while capturing improvements to borrow checking, `std::sync`, and profile-guided optimization hooks relevant to TLC performance. Pinning ensures reproducible builds across developers and CI.
+- Alternatives considered: Staying unpinned risks drift between developer environments; targeting nightly would increase instability and churn in CI without clear benefit for TLC.
 
-## Task: Research checkpoint storage strategy for 10–100 GB payloads
-- **Decision**: Persist checkpoints as chunked binary segments encoded via `serde` + `zstd`, indexed by a Rust-native embedded key-value store using `sled`, with metadata manifests stored alongside in JSON.
-- **Rationale**: `sled` offers high-throughput append-only storage, crash safety, and 128-bit key support—matching our deterministic fingerprint requirements. Chunked blobs keep write amplification manageable, and `zstd` balances compression ratio with speed for large state graphs.
-- **Alternatives considered**: `rusqlite`/SQLite handles large files but adds SQL schema management overhead and weaker concurrent write performance. Plain filesystem blobs lack crash consistency and indexing guarantees. Other Rust KV stores (e.g., `heed`) require LMDB which complicates cross-platform packaging.
+### Checkpoint Storage Backend
+- Decision: Adopt `sqlite` via the `rusqlite` crate for checkpoint persistence, complemented by binary blob columns for serialized states and metadata tables for frontier/backlog bookkeeping.
+- Rationale: SQLite is mature, battle-tested at 100 GB scale, supports safe concurrent read/write patterns via WAL mode, and offers strong tooling for integrity checks. `rusqlite` bindings are well maintained and integrate cleanly with serde-based encoding.
+- Alternatives considered: `sled` offers a pure-Rust option but has an unstable roadmap and less predictable recovery tooling; `redb` is emerging but lacks the long-term operational track record required for TLC checkpoints.
 
-## Task: Research concurrency and worker orchestration for single-host multi-core runs
-- **Decision**: Implement a custom scheduler atop `rayon` thread pools using `crossbeam-deque` for work-stealing, with cooperative checkpoints via atomic epoch markers; guard any unavoidable `unsafe` behind reviewed modules and dedicated tests.
-- **Rationale**: Work-stealing fits TLC’s irregular branching factor and enables dynamic load balancing. `rayon` integrates nicely with scoped threads and provides proven ergonomics, while `crossbeam`’s lock-free deques align with low-latency frontier management.
-- **Alternatives considered**: A pure `std::thread` pool would require bespoke work-stealing logic, increasing maintenance risk. Async runtimes (`tokio`, `async-std`) incur scheduling overhead and complicate CPU affinity management. GPU offload is out of scope for GA.
+### Testing & Parity Harness
+- Decision: Build a Rust test harness that shells out to the legacy Java TLC binary to capture golden outputs, then run identical scenarios through the new `tlc` binary under `cargo test` integration suites and nightly CI.
+- Rationale: This approach preserves the existing regression suite without rewriting all models immediately, enables automatic diffing of traces/statistics, and lets us block regressions before the Java path is retired. Property-based fuzzing (e.g., `proptest`) will cover engine invariants.
+- Alternatives considered: Manual parity testing would not scale; deferring to Toolbox integration lacks coverage for engine-level regressions.
 
-## Task: Research parity verification and golden testing strategy
-- **Decision**: Stand up a golden harness that executes the full TLC regression suite and representative PlusCal/TLA+ specs through both binaries, diffing outputs via a new `tlc-parity` Rust crate, with nightly CI orchestration owned by the Rust TLC migration team.
-- **Rationale**: Automated comparisons de-risk regressions and satisfy Constitution Principle II. Centralizing diff logic in a crate enables reuse for integration tests and ad-hoc investigations.
-- **Alternatives considered**: Manual spot checks or selective regressions lack coverage and violate parity requirements. Reusing existing Java harness tooling would entrench legacy dependencies and slow decommissioning.
+### Windows Packaging Strategy
+- Decision: Use `cargo dist` (or `cargo zigbuild` for cross-compilation) to generate signed Windows artifacts (`.msi`/`.zip`) from CI, relying on `cross` for Linux/macOS builds and testing Windows behavior through GitHub Actions runners.
+- Rationale: `cargo dist` automates target-specific packaging, integrates well with release pipelines, and avoids hand-maintained scripts. Utilizing cross-compilation keeps local developer requirements minimal while ensuring reproducible builds across platforms.
+- Alternatives considered: Maintaining bespoke PowerShell scripts would be brittle; relying solely on Windows developers for releases would slow the pipeline and reduce confidence.
 
-## Task: Research toolchain governance and dependency audit cadence
-- **Decision**: Pin `rust-toolchain.toml` to the active stable release (initially Rust 1.83) with monthly review, enforce `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test`, `cargo nextest`, and `cargo audit` in CI, and document upgrades in `docs/migration/rust-toolchain.md`.
-- **Rationale**: Aligns with Constitution Principle IV by staying evergreen, captures reproducibility, and provides audit trails for security posture.
-- **Alternatives considered**: Using `nightly` adds instability and reviewer burden; deferring audits to release milestones delays vulnerability detection; omitting `cargo nextest` would lengthen test feedback loops on large suites.
+### Clap Command-Line Design
+- Decision: Model the CLI with `clap` derive macros, mapping legacy TLC flags to subcommands/arguments and adding new telemetric/progress options as structured arguments with `ArgGroup`s for mutually exclusive flags.
+- Rationale: Derive macros keep definitions declarative, ensure help text stays synced, and simplify validation (required groups, default values) compared to manual parsing.
+- Alternatives considered: Using raw `clap::Command` builders is more verbose; hand-rolled parsers risk drift from established flag semantics.
 
-## Task: Research target platform guarantees
-- **Decision**: Support macOS (x86_64 + arm64), Linux (x86_64 + arm64), and Windows (x86_64) builds via `cargo` with cross-compilation validated in CI runners; document platform nuances in the quickstart.
-- **Rationale**: Mirrors current TLC distribution footprint and ensures ToolBox integrations remain functional across developer environments.
-- **Alternatives considered**: Limiting GA to Linux would block Windows/macOS users; adding tier-3 platforms (e.g., FreeBSD) would dilute focus before parity completion.
+### Serde Serialization Strategy
+- Decision: Use `serde` with explicit `#[serde(with = "...")]` modules for binary state encoding and `serde_json` for progress/telemetry output, ensuring compatibility with checkpoint blobs and NDJSON streams.
+- Rationale: Custom serializers give control over compact binary formats while leveraging serde’s ecosystem; JSON output remains standard and debuggable.
+- Alternatives considered: Implementing bespoke serialization would increase maintenance; alternative formats (CBOR/Bincode) remain possible for specific blobs but add integration work without immediate need.
 
-## Task: Research telemetry export and progress event format
-- **Decision**: Emit TTY progress via `indicatif` multi-progress instances, with NDJSON events serialized through `serde_json` following a documented schema (`run_id`, `timestamp`, `states_explored`, `percent_complete`, `throughput`, `eta`). Attach OpenTelemetry spans via `tracing-opentelemetry`, defaulting to console and file subscribers with opt-in OTLP exporters.
-- **Rationale**: Satisfies spec requirements for dual-mode progress reporting and Constitution Principle III observability expectations while keeping dependencies cohesive.
-- **Alternatives considered**: Building a bespoke TUI (e.g., `ratatui`) exceeds GA scope; exposing Prometheus metrics would require running HTTP servers and complicate air-gapped use cases.
+### Tracing & OpenTelemetry Integration
+- Decision: Instrument the engine with `tracing` spans/events, attach `tracing-subscriber` layers for CLI output, and gate OTLP export via `tracing-opentelemetry` behind an opt-in flag/environment variable.
+- Rationale: This combination satisfies structured logging requirements, keeps console output ergonomic, and provides a pathway to remote telemetry when explicitly enabled, honoring privacy defaults.
+- Alternatives considered: Direct `opentelemetry` APIs would duplicate effort; bespoke logging would forgo ecosystem tooling and structured filtering.
 
-## Task: Research migration communication and Java shim retirement plan
-- **Decision**: Maintain a migration register in `docs/migration/tlc-rust.md`, send bi-weekly updates through the TLC maintainers mailing list and internal Slack channel, require sign-off from Toolbox owners before removing Java artifacts, and limit Java shims to parity harness wrappers scheduled for removal once parity metrics hold for two consecutive releases.
-- **Rationale**: Provides transparent collaboration per Constitution Principle V, clarifies ownership, and bounds the lifetime of any residual Java code.
-- **Alternatives considered**: Ad-hoc announcements risk stakeholder drift; retaining broad Java interop would violate the Rust-first mandate.
+### Progress Rendering
+- Decision: Use `indicatif` for TTY progress bars while emitting NDJSON progress updates via a dedicated serializer for non-TTY environments.
+- Rationale: `indicatif` delivers polished terminal output with minimal code and plays well with multi-threaded updates; NDJSON keeps automation-friendly semantics.
+- Alternatives considered: Writing custom progress rendering would slow delivery; `console`/`yansi` provide coloring but lack full progress management.
+
+### Concurrency Foundations
+- Decision: Combine `rayon` for data-parallel exploration over state frontiers with `crossbeam` channels for worker coordination and checkpoint triggers.
+- Rationale: `rayon` excels at parallel iterators and work-stealing, while `crossbeam` offers lightweight channels and synchronization primitives suited for high-throughput workloads.
+- Alternatives considered: Native threads with manual scheduling would duplicate `rayon` functionality; async runtimes (`tokio`) are unnecessary for CPU-bound search loops.

@@ -85,16 +85,18 @@
   - `run_id` (ULID).
   - `spec_hash` (blake3-256) — ensures resume compatibility.
   - `created_at` (RFC3339).
-  - `frontier_chunks` (list<Path>) — `zstd`-compressed serde blobs.
-  - `visited_index` (sled tree name) — mapping of `StateFingerprint` → metadata.
-  - `rng_seeds` (list<u64>) — per-worker seeds.
-  - `resume_flags` (map<string, bool>) — CLI toggles needed for restart.
+  - `sqlite_page_size` (u32) — page size used when checkpoint DB created.
+  - `frontier_blocks` (table: `frontier_blocks`) — each row stores `block_id`, compressed frontier blob (`BLOB`), and deque ordering.
+  - `visited_index` (table: `visited_states`) — columns `fingerprint` (u128 stored as `BLOB`), `generation`, `metadata`.
+  - `rng_seeds` (table: `worker_rng`) — per-worker seeds keyed by worker index.
+  - `resume_flags` (table: `resume_flags`) — persisted CLI toggles required for restart.
 - **Relationships**
   - Many-to-one with `ExplorationRun`.
   - Provides input for `RunConfiguration.resume_from`.
 - **Validation Rules**
   - `spec_hash` must match active `SpecificationPackage.hash`.
-  - All referenced files must exist and match recorded sizes and digests.
+  - SQLite WAL + SHM files, when present, must pass integrity check (`PRAGMA integrity_check`).
+  - `frontier_blocks` must contain at least one row unless run completed.
 - **State Transitions**
   - Immutable after write; superseded checkpoints append to list.
 
