@@ -25,6 +25,7 @@ blake3 = "1.5"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.5", features = ["derive", "env"] }
 crossbeam = "0.8.4"
+criterion = "0.5"
 indicatif = "0.17"
 rayon = "1.10"
 rusqlite = { version = "0.31", features = ["bundled", "chrono", "serde_json"] }
