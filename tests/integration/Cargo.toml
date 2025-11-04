@@ -49,3 +49,7 @@ path = "progress_validation.rs"
 [[test]]
 name = "engine_scaling"
 path = "engine_scaling.rs"
+
+[[test]]
+name = "worker_skew"
+path = "worker_skew.rs"
