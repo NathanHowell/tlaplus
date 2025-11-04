@@ -188,6 +188,7 @@ fn engine_options_from(options: &RunOptions) -> EngineOptions {
         cleanup: options.cleanup,
         suppress_warnings: options.suppress_warnings,
         diff_trace: options.diff_trace,
+        tty_use_color: options.tty_use_color,
         dump_trace: options.dump_trace.as_ref().map(|cfg| DumpTraceOptions {
             format: map_trace_format(cfg.format.clone()),
             output_path: cfg.output_path.clone(),
@@ -207,6 +208,7 @@ fn run_options_from_engine(options: &EngineOptions) -> RunOptions {
         cleanup: options.cleanup,
         suppress_warnings: options.suppress_warnings,
         diff_trace: options.diff_trace,
+        tty_use_color: options.tty_use_color,
         dump_trace: options.dump_trace.as_ref().map(|cfg| DumpTraceConfig {
             format: reverse_map_trace_format(cfg.format),
             output_path: cfg.output_path.clone(),
@@ -326,6 +328,11 @@ fn build_resume_command(manifest: &RunManifest, command: &ResumeCommand) -> Resu
         .otlp_endpoint
         .clone()
         .or_else(|| manifest.inputs.options.telemetry_endpoint.clone());
+    let no_color = if command.output.no_color {
+        true
+    } else {
+        !manifest.inputs.options.tty_use_color
+    };
 
     Ok(RunCommand {
         spec: primary_module,
@@ -348,6 +355,7 @@ fn build_resume_command(manifest: &RunManifest, command: &ResumeCommand) -> Resu
             progress: command.output.progress,
             telemetry: command.output.telemetry,
             otlp_endpoint,
+            no_color,
         },
     })
 }
@@ -433,6 +441,7 @@ mod tests {
                 progress: ProgressMode::Ndjson,
                 telemetry: TelemetryMode::Local,
                 otlp_endpoint: Some("https://collector:4317".into()),
+                no_color: false,
             },
         }
     }
@@ -490,6 +499,7 @@ mod tests {
                 progress: ProgressMode::Tty,
                 telemetry: TelemetryMode::Json,
                 otlp_endpoint: Some("https://cli-endpoint:4317".into()),
+                no_color: true,
             },
         };
 
@@ -501,6 +511,7 @@ mod tests {
             resume_run_command.output.otlp_endpoint.as_deref(),
             Some("https://cli-endpoint:4317")
         );
+        assert!(resume_run_command.output.no_color);
         assert_eq!(resume_run_command.dump_trace, Some(TraceDumpFormat::Dot));
         assert_eq!(
             resume_run_command.dump_trace_file.as_ref(),

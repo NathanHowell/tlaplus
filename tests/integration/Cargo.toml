@@ -8,6 +8,7 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 chrono.workspace = true
+indicatif.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
@@ -17,6 +18,7 @@ ulid.workspace = true
 tlc-telemetry = { path = "../../src/telemetry" }
 tlc-util = { path = "../../src/util" }
 tlc-checkpoint = { path = "../../src/checkpoint" }
+tlc-progress = { path = "../../src/progress" }
 
 [[test]]
 name = "telemetry_defaults"
@@ -33,3 +35,7 @@ path = "checkpoint_soak.rs"
 [[test]]
 name = "progress_ndjson"
 path = "progress_ndjson.rs"
+
+[[test]]
+name = "progress_tty"
+path = "progress_tty.rs"

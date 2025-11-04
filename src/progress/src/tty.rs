@@ -35,6 +35,9 @@ pub struct TtyRenderer {
     bar: ProgressBar,
     start_timestamp: Option<DateTime<Utc>>,
     last_render: Option<RenderedState>,
+    options: TtyOptions,
+    style_template: &'static str,
+    progress_chars: &'static str,
 }
 
 impl TtyRenderer {
@@ -49,15 +52,16 @@ impl TtyRenderer {
         bar.set_draw_target(ProgressDrawTarget::stderr_with_hz(12));
         bar.enable_steady_tick(Duration::from_millis(125));
 
-        let style_template = if options.use_color {
+        let style_template: &'static str = if options.use_color {
             "{prefix:.bold.blue} {wide_bar:.cyan/blue} {percent:>6.2}% | {msg}"
         } else {
             "{prefix} {wide_bar} {percent:>6.2}% | {msg}"
         };
+        let progress_chars: &'static str = if options.use_color { "━╺ " } else { "=> " };
 
         let style = ProgressStyle::with_template(style_template)
             .context("failed to construct TTY progress style")?
-            .progress_chars(if options.use_color { "━╺ " } else { "=> " });
+            .progress_chars(progress_chars);
 
         bar.set_style(style);
         bar.set_prefix("tlc");
@@ -67,6 +71,9 @@ impl TtyRenderer {
             bar,
             start_timestamp: None,
             last_render: None,
+            options,
+            style_template,
+            progress_chars,
         })
     }
 
@@ -130,6 +137,26 @@ impl TtyRenderer {
     /// Override the draw target (useful for tests or alternate output sinks).
     pub fn set_draw_target(&self, target: ProgressDrawTarget) {
         self.bar.set_draw_target(target);
+    }
+
+    /// Report whether ANSI colors are enabled for this renderer.
+    pub fn use_color(&self) -> bool {
+        self.options.use_color
+    }
+
+    /// Return the styling template applied to the underlying progress bar.
+    pub fn style_template(&self) -> &'static str {
+        self.style_template
+    }
+
+    /// Return the character sequence used for the progress bar body.
+    pub fn bar_characters(&self) -> &'static str {
+        self.progress_chars
+    }
+
+    /// Access the effective options used to configure the renderer.
+    pub fn options(&self) -> TtyOptions {
+        self.options
     }
 
     #[cfg(test)]

@@ -57,6 +57,10 @@ pub struct OutputOptions {
     /// OTLP collector endpoint when `--telemetry=otlp` (e.g. https://collector:4317).
     #[arg(long = "otlp-endpoint", value_name = "URL", requires = "telemetry")]
     pub otlp_endpoint: Option<String>,
+
+    /// Disable ANSI colors in TTY progress output (useful for monochrome terminals).
+    #[arg(long = "no-color", action = ArgAction::SetTrue)]
+    pub no_color: bool,
 }
 
 /// CLI arguments for `tlc run`.
@@ -178,15 +182,23 @@ pub enum ProgressMode {
 /// Concrete progress renderer selection after accounting for environment constraints.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProgressRenderer {
-    Tty,
+    Tty { use_color: bool },
     Ndjson,
 }
 
 impl ProgressRenderer {
     pub fn mode(self) -> ProgressMode {
         match self {
-            ProgressRenderer::Tty => ProgressMode::Tty,
+            ProgressRenderer::Tty { .. } => ProgressMode::Tty,
             ProgressRenderer::Ndjson => ProgressMode::Ndjson,
+        }
+    }
+
+    /// Report whether ANSI styling should be used for TTY progress output.
+    pub fn tty_use_color(self) -> Option<bool> {
+        match self {
+            ProgressRenderer::Tty { use_color } => Some(use_color),
+            ProgressRenderer::Ndjson => None,
         }
     }
 }
@@ -203,9 +215,10 @@ impl OutputOptions {
     }
 
     fn resolve_progress_internal(&self, stdout_is_terminal: bool) -> ProgressRenderer {
+        let use_color = !self.no_color;
         match self.progress {
             ProgressMode::Ndjson => ProgressRenderer::Ndjson,
-            ProgressMode::Tty if stdout_is_terminal => ProgressRenderer::Tty,
+            ProgressMode::Tty if stdout_is_terminal => ProgressRenderer::Tty { use_color },
             ProgressMode::Tty => ProgressRenderer::Ndjson,
         }
     }
@@ -213,6 +226,11 @@ impl OutputOptions {
     #[cfg(test)]
     pub(crate) fn resolve_progress_for(&self, stdout_is_terminal: bool) -> ProgressRenderer {
         self.resolve_progress_internal(stdout_is_terminal)
+    }
+
+    /// Report whether TTY progress should retain ANSI colors.
+    pub fn tty_color_enabled(&self) -> bool {
+        !self.no_color
     }
 }
 
@@ -373,13 +391,17 @@ mod tests {
             progress,
             telemetry: TelemetryMode::Local,
             otlp_endpoint: None,
+            no_color: false,
         }
     }
 
     #[test]
     fn tty_progress_selected_when_terminal() {
         let options = default_options(ProgressMode::Tty);
-        assert_eq!(options.resolve_progress_for(true), ProgressRenderer::Tty);
+        assert_eq!(
+            options.resolve_progress_for(true),
+            ProgressRenderer::Tty { use_color: true }
+        );
     }
 
     #[test]
@@ -399,5 +421,16 @@ mod tests {
             options.resolve_progress_for(false),
             ProgressRenderer::Ndjson
         );
+    }
+
+    #[test]
+    fn no_color_flag_disables_tty_colors_when_terminal() {
+        let mut options = default_options(ProgressMode::Tty);
+        options.no_color = true;
+
+        let renderer = options.resolve_progress_for(true);
+        assert_eq!(renderer, ProgressRenderer::Tty { use_color: false });
+        assert_eq!(options.tty_color_enabled(), false);
+        assert_eq!(renderer.tty_use_color(), Some(false));
     }
 }

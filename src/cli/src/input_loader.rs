@@ -42,6 +42,7 @@ pub struct RunOptions {
     pub cleanup: bool,
     pub suppress_warnings: bool,
     pub diff_trace: bool,
+    pub tty_use_color: bool,
     pub dump_trace: Option<DumpTraceConfig>,
     pub post_conditions: Vec<String>,
     pub telemetry_endpoint: Option<String>,
@@ -133,6 +134,7 @@ pub fn load_run_inputs_with_progress(
         cleanup: command.cleanup,
         suppress_warnings: command.suppress_warnings,
         diff_trace: command.diff_trace,
+        tty_use_color: command.output.tty_color_enabled(),
         dump_trace,
         post_conditions: command.post_conditions.clone(),
         telemetry_endpoint: command.output.otlp_endpoint.clone(),
@@ -350,6 +352,7 @@ mod tests {
                 progress: ProgressMode::Ndjson,
                 telemetry: TelemetryMode::Local,
                 otlp_endpoint: None,
+                no_color: false,
             },
         }
     }
@@ -381,6 +384,7 @@ mod tests {
 
         assert_eq!(inputs.options.continue_on_violation, true);
         assert_eq!(inputs.options.diff_trace, true);
+        assert!(inputs.options.tty_use_color);
         assert_eq!(inputs.options.post_conditions, vec!["Mod!Op"]);
         assert!(inputs.options.dump_trace.is_none());
         assert_eq!(

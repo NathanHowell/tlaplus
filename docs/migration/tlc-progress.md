@@ -8,8 +8,8 @@ Keep it updated as progress-related flags or schemas evolve.
 ## Modes at a Glance
 - **TTY progress (`tty`)** &mdash; Uses `indicatif` to render an animated bar with
   explored state counts, completion percentage, elapsed time, throughput, and an
-  optional ETA. Color output tracks the terminal theme and will honor the
-  upcoming `--no-color` flag (T035) for monochrome environments.
+  optional ETA. Color output tracks the terminal theme and honors the
+  `--no-color` flag for monochrome environments.
 - **NDJSON progress (`ndjson`)** &mdash; Emits one JSON object per line to stdout,
   mirroring the same metrics as the TTY view and designed for log pipelines,
   Toolbox integrations, and CI dashboards.
@@ -73,10 +73,10 @@ Update the test and this document together whenever fields change.
   stdout (e.g., `tmux` logging panes), force `--progress tty` if you want the
   interactive bar and ensure the sink is a real terminal. Otherwise expect the
   NDJSON stream.
-- **Color handling**: The `tty` renderer currently honors terminal color support
-  automatically. Once T035 lands, set `--no-color` (or the corresponding
-  configuration knob) in environments that require monochrome output, and update
-  Toolbox integrations if they rely on ANSI codes.
+- **Color handling**: The `tty` renderer honors terminal color support
+  automatically. Set `--no-color` (or the corresponding configuration knob) in
+  environments that require monochrome output, and update Toolbox integrations
+  if they rely on ANSI codes.
 
 ## Checklist Before Shipping Progress Changes
 

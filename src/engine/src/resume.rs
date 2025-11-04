@@ -351,6 +351,7 @@ mod tests {
             cleanup: false,
             suppress_warnings: false,
             diff_trace: false,
+            tty_use_color: true,
             dump_trace: None,
             post_conditions: vec!["Foo!Bar".into()],
             telemetry_endpoint: None,
