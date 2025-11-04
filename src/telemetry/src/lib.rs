@@ -21,9 +21,15 @@ use tracing_subscriber::{
 
 use tlc_util::TelemetryMode;
 
-const DEFAULT_SERVICE_VERSION: &str = env!("CARGO_PKG_VERSION");
-
 mod redaction;
+mod workers;
+
+pub use workers::{
+    QueueTelemetry, Result as WorkerTelemetryResult, WorkerSample, WorkerTelemetry,
+    WorkerTelemetryError, WorkerUtilizationReport,
+};
+
+const DEFAULT_SERVICE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Configuration for installing TLC telemetry subscribers.
 #[derive(Debug, Clone)]

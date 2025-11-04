@@ -20,5 +20,6 @@ opentelemetry.workspace = true
 opentelemetry-otlp.workspace = true
 opentelemetry_sdk.workspace = true
 tracing-appender.workspace = true
+thiserror.workspace = true
 
 tlc-util = { path = "../util" }
