@@ -1172,6 +1172,11 @@ mod tests {
         "Finished in 02min 06s at (2025-11-02 04:00:00)"
     );
 
+    const MP_WARNING_LINES: &str = concat!(
+        "Warning: Temporal properties (PROPERTY or PROPERTIES) are being verified without a behavior specification (SPECIFICATION). Only INIT and NEXT have been provided. This is likely to result in (trivial) counterexamples showing infinite stuttering following the initial state. It is recommended to use SPECIFICATION Spec, with Spec asserting a suitable fairness constraint (compare Chapter 8, page 87ff of Specifying Systems at https://lamport.azurewebsites.net/tla/book.html).\n",
+        "Warning: Temporal properties (PROPERTY or PROPERTIES) are being verified without a fairness constraint conjoined to the behavior specification Spec defined at Spec.tla:42. This may lead to trivial counterexamples in which the system exhibits infinite stuttering immediately after the initial state. To avoid this, it is recommended to conjoin a suitable fairness constraint to Spec (compare Chapter 8, page 87ff of Specifying Systems at https://lamport.azurewebsites.net/tla/book.html).\n"
+    );
+
     fn escape_for_string_literal(input: &str) -> String {
         let mut escaped = String::with_capacity(input.len());
         for ch in input.chars() {
@@ -1594,6 +1599,84 @@ deprecated_flags = ["tool"]
         assert!(
             contents.contains("Executed: false"),
             "diff should record missing execution"
+        );
+    }
+
+    #[test]
+    fn mp_warning_outputs_match_legacy() {
+        let temp = tempdir().expect("temp dir");
+        let specs_root = temp.path().join("specs");
+        let spec_dir = specs_root.join("SpecA");
+        fs::create_dir_all(&spec_dir).unwrap();
+        fs::write(spec_dir.join("SpecA.tla"), "---- MODULE SpecA ----").unwrap();
+
+        let output_dir = temp.path().join("artifacts");
+        let stdout_payload = format!("{MP_WARNING_LINES}\n{FINAL_SUMMARY}");
+        let rust_stub_source = metrics_stub_source(&stdout_payload);
+        let rust_stub = build_stub_binary(temp.path(), "rust_mp_stub", &rust_stub_source);
+        let legacy_stub_source = metrics_stub_source(&stdout_payload);
+        let legacy_stub = build_stub_binary(temp.path(), "legacy_mp_stub", &legacy_stub_source);
+
+        let config = HarnessConfig {
+            legacy_launcher: legacy_stub,
+            specs_root: specs_root.clone(),
+            filter: None,
+            output_dir: output_dir.clone(),
+            rust_binary: rust_stub,
+            workers: None,
+            golden_cache: None,
+        };
+
+        run_with_config(config).expect("run harness");
+
+        let summary_path = output_dir.join("summary.json");
+        let summary: SummaryReport =
+            serde_json::from_slice(&fs::read(&summary_path).unwrap()).unwrap();
+        assert_eq!(summary.specs.len(), 1);
+        assert_eq!(summary.specs[0].status, ParityStatus::Match);
+    }
+
+    #[test]
+    fn mp_warning_mismatch_detected() {
+        let temp = tempdir().expect("temp dir");
+        let specs_root = temp.path().join("specs");
+        let spec_dir = specs_root.join("SpecA");
+        fs::create_dir_all(&spec_dir).unwrap();
+        fs::write(spec_dir.join("SpecA.tla"), "---- MODULE SpecA ----").unwrap();
+
+        let output_dir = temp.path().join("artifacts");
+        let rust_stdout = format!("{MP_WARNING_LINES}\n{FINAL_SUMMARY}");
+        let rust_stub_source = metrics_stub_source(&rust_stdout);
+        let rust_stub = build_stub_binary(temp.path(), "rust_mp_stub_mismatch", &rust_stub_source);
+
+        let legacy_warning = MP_WARNING_LINES.replace("Spec.tla:42", "Spec.tla:24");
+        let legacy_stdout = format!("{legacy_warning}\n{FINAL_SUMMARY}");
+        let legacy_stub_source = metrics_stub_source(&legacy_stdout);
+        let legacy_stub =
+            build_stub_binary(temp.path(), "legacy_mp_stub_mismatch", &legacy_stub_source);
+
+        let config = HarnessConfig {
+            legacy_launcher: legacy_stub,
+            specs_root: specs_root.clone(),
+            filter: None,
+            output_dir: output_dir.clone(),
+            rust_binary: rust_stub,
+            workers: None,
+            golden_cache: None,
+        };
+
+        run_with_config(config).expect("run harness mismatch");
+
+        let summary_path = output_dir.join("summary.json");
+        let summary: SummaryReport =
+            serde_json::from_slice(&fs::read(&summary_path).unwrap()).unwrap();
+        assert_eq!(summary.specs.len(), 1);
+        let report = &summary.specs[0];
+        assert_eq!(report.status, ParityStatus::Mismatch);
+        let note = report.notes.as_deref().unwrap_or("");
+        assert!(
+            note.contains("stdout differs"),
+            "expected stdout mismatch note, got: {note}"
         );
     }
 

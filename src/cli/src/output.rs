@@ -116,6 +116,19 @@ impl Diagnostic {
             parameters: vec![runtime, timestamp],
         }
     }
+
+    /// Construct a diagnostic from a raw legacy message code.
+    pub fn custom<P, S>(code: u32, class: MessageClass, parameters: P) -> Self
+    where
+        P: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Diagnostic {
+            code: MessageCode::Custom(code),
+            class,
+            parameters: parameters.into_iter().map(Into::into).collect(),
+        }
+    }
 }
 
 /// Probability estimates for fingerprint collisions printed in the success banner.
@@ -317,7 +330,7 @@ impl Formatter {
 
     /// Render a diagnostic into the legacy string representation.
     pub fn format(&self, diagnostic: &Diagnostic) -> Result<String, FormatterError> {
-        let body = render_body(diagnostic.code, &diagnostic.parameters)?;
+        let body = render_body(diagnostic.code, diagnostic.class, &diagnostic.parameters)?;
         Ok(if self.tool_mode {
             wrap_tool_message(diagnostic.class, diagnostic.code.value(), &body)
         } else {
@@ -357,14 +370,18 @@ impl Formatter {
     }
 }
 
-fn render_body(code: MessageCode, params: &[String]) -> Result<String, FormatterError> {
+fn render_body(
+    code: MessageCode,
+    class: MessageClass,
+    params: &[String],
+) -> Result<String, FormatterError> {
     match code {
         MessageCode::Success => render_success(params),
         MessageCode::Stats => render_stats(params, true),
         MessageCode::StatsDfid => render_stats(params, false),
         MessageCode::SearchDepth => render_search_depth(params),
         MessageCode::Finished => render_finished(params),
-        MessageCode::Custom(value) => Err(FormatterError::UnknownCode(value)),
+        MessageCode::Custom(value) => message_catalog::render(value, class, params),
     }
 }
 
@@ -419,6 +436,150 @@ fn render_finished(params: &[String]) -> Result<String, FormatterError> {
     ensure_parameter(params, 0, MessageCode::Finished)?;
     ensure_parameter(params, 1, MessageCode::Finished)?;
     Ok(format!("Finished in {} at ({})", params[0], params[1]))
+}
+
+mod message_catalog {
+    use super::{ensure_parameter, FormatterError, MessageClass, MessageCode};
+
+    pub(super) fn render(
+        code: u32,
+        class: MessageClass,
+        params: &[String],
+    ) -> Result<String, FormatterError> {
+        match code {
+            2104 => assumption_false(class, params),
+            2114 => deadlock_reached(class, params),
+            2146 => invariant_not_state_predicate(class, params),
+            2256 => no_state_satisfies_constraint(class, params),
+            2284 => liveness_constraints_warning(class, params),
+            2285 => feature_incompatible(class, params),
+            9296 => no_specification_but_properties(class, params),
+            9297 => no_fairness_for_properties(class, params),
+            _ => Err(FormatterError::UnknownCode(code)),
+        }
+    }
+
+    fn ensure_class(
+        expected: MessageClass,
+        actual: MessageClass,
+        code: u32,
+    ) -> Result<(), FormatterError> {
+        if expected == actual {
+            Ok(())
+        } else {
+            Err(FormatterError::UnknownCode(code))
+        }
+    }
+
+    fn assumption_false(class: MessageClass, params: &[String]) -> Result<String, FormatterError> {
+        ensure_class(MessageClass::Error, class, 2104)?;
+        ensure_parameter(params, 0, MessageCode::Custom(2104))?;
+        Ok(format!("Assumption {} is false.", params[0]))
+    }
+
+    fn deadlock_reached(class: MessageClass, params: &[String]) -> Result<String, FormatterError> {
+        ensure_class(MessageClass::Error, class, 2114)?;
+        if !params.is_empty() {
+            return Err(FormatterError::MissingParameter {
+                code: 2114,
+                index: 0,
+                provided: params.len(),
+            });
+        }
+        Ok("Deadlock reached.".to_string())
+    }
+
+    fn invariant_not_state_predicate(
+        class: MessageClass,
+        params: &[String],
+    ) -> Result<String, FormatterError> {
+        ensure_class(MessageClass::Error, class, 2146)?;
+        ensure_parameter(params, 0, MessageCode::Custom(2146))?;
+        let mut message = format!(
+            "The invariant {} is not a state predicate (one with no primes or temporal operators).",
+            params[0]
+        );
+
+        if params.len() > 1 {
+            message.push_str(
+                "\nNote that a bug can cause TLC to incorrectly report this error.\n\
+                 If you believe your TLA+ or PlusCal specification to be correct,\n\
+                 please check if this bug described in LevelNode.java starting at line 590ff affects you.",
+            );
+        }
+
+        Ok(message)
+    }
+
+    fn no_state_satisfies_constraint(
+        class: MessageClass,
+        params: &[String],
+    ) -> Result<String, FormatterError> {
+        ensure_class(MessageClass::Error, class, 2256)?;
+        if !params.is_empty() {
+            return Err(FormatterError::MissingParameter {
+                code: 2256,
+                index: 0,
+                provided: params.len(),
+            });
+        }
+        Ok(
+            "There is no state satisfying the initial state predicate and the state-constraint(s)."
+                .to_string(),
+        )
+    }
+
+    fn liveness_constraints_warning(
+        class: MessageClass,
+        params: &[String],
+    ) -> Result<String, FormatterError> {
+        ensure_class(MessageClass::Warning, class, 2284)?;
+        if !params.is_empty() {
+            return Err(FormatterError::MissingParameter {
+                code: 2284,
+                index: 0,
+                provided: params.len(),
+            });
+        }
+        Ok("Declaring state or action constraints during liveness checking is dangerous: Please read section 14.3.5 on page 247 of Specifying Systems (https://lamport.azurewebsites.net/tla/book.html) and optionally the discussion at https://discuss.tlapl.us/msg00994.html for more details.".to_string())
+    }
+
+    fn feature_incompatible(
+        class: MessageClass,
+        params: &[String],
+    ) -> Result<String, FormatterError> {
+        ensure_class(MessageClass::Warning, class, 2285)?;
+        ensure_parameter(params, 0, MessageCode::Custom(2285))?;
+        Ok(format!(
+            "Feature {} is not supported in the current TLC mode.",
+            params[0]
+        ))
+    }
+
+    fn no_specification_but_properties(
+        class: MessageClass,
+        params: &[String],
+    ) -> Result<String, FormatterError> {
+        ensure_class(MessageClass::Warning, class, 9296)?;
+        if !params.is_empty() {
+            return Err(FormatterError::MissingParameter {
+                code: 9296,
+                index: 0,
+                provided: params.len(),
+            });
+        }
+        Ok("Temporal properties (PROPERTY or PROPERTIES) are being verified without a behavior specification (SPECIFICATION). Only INIT and NEXT have been provided. This is likely to result in (trivial) counterexamples showing infinite stuttering following the initial state. It is recommended to use SPECIFICATION Spec, with Spec asserting a suitable fairness constraint (compare Chapter 8, page 87ff of Specifying Systems at https://lamport.azurewebsites.net/tla/book.html).".to_string())
+    }
+
+    fn no_fairness_for_properties(
+        class: MessageClass,
+        params: &[String],
+    ) -> Result<String, FormatterError> {
+        ensure_class(MessageClass::Warning, class, 9297)?;
+        ensure_parameter(params, 0, MessageCode::Custom(9297))?;
+        ensure_parameter(params, 1, MessageCode::Custom(9297))?;
+        Ok(format!("Temporal properties (PROPERTY or PROPERTIES) are being verified without a fairness constraint conjoined to the behavior specification {} defined at {}. This may lead to trivial counterexamples in which the system exhibits infinite stuttering immediately after the initial state. To avoid this, it is recommended to conjoin a suitable fairness constraint to {} (compare Chapter 8, page 87ff of Specifying Systems at https://lamport.azurewebsites.net/tla/book.html).", params[0], params[1], params[0]))
+    }
 }
 
 fn format_runtime(duration: Duration, tool_mode: bool) -> String {
@@ -718,6 +879,25 @@ mod tests {
                 "Regenerate the checkpoint by rerunning `tlc run` with matching modules and configuration.",
                 "To bypass this safety check (not recommended), rerun with: tlc resume --checkpoint \"/data/run.chk\" --ignore-hash",
             ]
+        );
+    }
+
+    #[test]
+    fn formats_assumption_false_error() {
+        let formatter = Formatter::default();
+        let diagnostic = Diagnostic::custom(2104, MessageClass::Error, ["ClockAssumption"]);
+        let rendered = formatter.format(&diagnostic).expect("formatted");
+        assert_eq!(rendered, "Error: Assumption ClockAssumption is false.");
+    }
+
+    #[test]
+    fn formats_no_fairness_warning() {
+        let formatter = Formatter::default();
+        let diagnostic = Diagnostic::custom(9297, MessageClass::Warning, ["Spec", "Spec.tla:42"]);
+        let rendered = formatter.format(&diagnostic).expect("formatted");
+        assert_eq!(
+            rendered,
+            "Warning: Temporal properties (PROPERTY or PROPERTIES) are being verified without a fairness constraint conjoined to the behavior specification Spec defined at Spec.tla:42. This may lead to trivial counterexamples in which the system exhibits infinite stuttering immediately after the initial state. To avoid this, it is recommended to conjoin a suitable fairness constraint to Spec (compare Chapter 8, page 87ff of Specifying Systems at https://lamport.azurewebsites.net/tla/book.html)."
         );
     }
 }
