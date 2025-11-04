@@ -1,3 +1,4 @@
+use std::fmt;
 use std::io::{self, IsTerminal};
 use std::num::ParseIntError;
 use std::path::PathBuf;
@@ -77,14 +78,20 @@ pub struct RunCommand {
     /// Override worker count (`auto` uses logical cores - 1, minimum 1).
     #[arg(
         long = "workers",
-        default_value = "auto",
+        default_value_t = WorkerCount::Auto,
         value_parser = value_parser!(WorkerCount),
-        value_name = "COUNT"
+        value_name = "COUNT",
+        env = "TLC_WORKERS"
     )]
     pub workers: WorkerCount,
 
     /// Upper bound for in-memory state cache (accepts suffixes like `4GiB`).
-    #[arg(long = "memory-limit", value_parser = value_parser!(MemoryLimit), value_name = "BYTES")]
+    #[arg(
+        long = "memory-limit",
+        value_parser = value_parser!(MemoryLimit),
+        value_name = "BYTES",
+        env = "TLC_MEMORY_LIMIT"
+    )]
     pub memory_limit: Option<MemoryLimit>,
 
     /// Key/value spec parameter overrides (`--param Foo=Bar --param Baz=Quux`).
@@ -158,9 +165,10 @@ pub struct ResumeCommand {
     /// Override worker count when resuming (same semantics as `tlc run`).
     #[arg(
         long = "workers",
-        default_value = "auto",
+        default_value_t = WorkerCount::Auto,
         value_parser = value_parser!(WorkerCount),
-        value_name = "COUNT"
+        value_name = "COUNT",
+        env = "TLC_WORKERS"
     )]
     pub workers: WorkerCount,
 
@@ -249,6 +257,12 @@ pub enum WorkerCount {
     Fixed(u16),
 }
 
+impl Default for WorkerCount {
+    fn default() -> Self {
+        WorkerCount::Auto
+    }
+}
+
 impl FromStr for WorkerCount {
     type Err = String;
 
@@ -264,6 +278,15 @@ impl FromStr for WorkerCount {
             return Err("worker count must be at least 1".to_string());
         }
         Ok(Self::Fixed(parsed))
+    }
+}
+
+impl fmt::Display for WorkerCount {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            WorkerCount::Auto => write!(f, "auto"),
+            WorkerCount::Fixed(value) => write!(f, "{value}"),
+        }
     }
 }
 
@@ -432,5 +455,21 @@ mod tests {
         assert_eq!(renderer, ProgressRenderer::Tty { use_color: false });
         assert_eq!(options.tty_color_enabled(), false);
         assert_eq!(renderer.tty_use_color(), Some(false));
+    }
+
+    #[test]
+    fn worker_count_parses_and_displays_defaults() {
+        assert_eq!(WorkerCount::default(), WorkerCount::Auto);
+        assert_eq!("auto", WorkerCount::Auto.to_string());
+        assert_eq!(
+            WorkerCount::from_str("auto").expect("parse auto"),
+            WorkerCount::Auto
+        );
+
+        assert_eq!(
+            WorkerCount::from_str("8").expect("parse fixed"),
+            WorkerCount::Fixed(8)
+        );
+        assert_eq!("8", WorkerCount::Fixed(8).to_string());
     }
 }
