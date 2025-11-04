@@ -458,10 +458,10 @@ Additional behaviors:
 
 ## Observability & Output
 
-- **Progress reporting**: Legacy prints textual progress (states found, depth). Rust rewrite introduces progress bar + NDJSON but must still support baseline console summaries at run end, including TLC statistics (states found, distinct states, search depth, trivially true invariants, etc.). Status: 🟡 ensure summary format parity.
-- **Final statistics**: Maintain exit banners (`The number of states`, `Progress`, `Finished in ...`). Map to existing `MP` message codes for `-tool` compatibility. Status: 🟡.
-- **Warning catalog**: Ensure all `MP` warnings/errors from Java exist with same codes/messages (e.g., fairness warnings, liveness info). Status: 🔴 requires inventory of message catalog.
-- **Logging toggles**: `-debug`, `-nowarning`, `-terse`, `-userFile` interplay must replicate precisely. Status: 🟡 (requires message routing design).
+- **Progress reporting**: Legacy prints textual progress (states found, depth). Rust rewrite introduces progress bar + NDJSON but must still support baseline console summaries at run end, including TLC statistics (states found, distinct states, search depth, trivially true invariants, etc.). Status: ✅ Planned via T084.
+- **Final statistics**: Maintain exit banners (`The number of states`, `Progress`, `Finished in ...`). Map to existing `MP` message codes for `-tool` compatibility. Status: ✅ Planned via T084.
+- **Warning catalog**: Ensure all `MP` warnings/errors from Java exist with same codes/messages (e.g., fairness warnings, liveness info). Status: 🟡 Scheduled via T085.
+- **Logging toggles**: `-debug`, `-nowarning`, `-terse`, `-userFile` interplay must replicate precisely. Status: 🟡 Scheduled via T086.
 
 ---
 
