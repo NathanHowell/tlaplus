@@ -1,6 +1,8 @@
 //! Formatting utilities for TLC CLI diagnostics and legacy-compatible summaries.
 
-use std::{fmt, path::Path};
+use std::{fmt, path::Path, time::Duration};
+
+use chrono::{DateTime, FixedOffset};
 
 use thiserror::Error;
 use tlc_util::RunStatus;
@@ -39,6 +41,7 @@ pub enum MessageCode {
     Stats,
     StatsDfid,
     SearchDepth,
+    Finished,
     Custom(u32),
 }
 
@@ -49,6 +52,7 @@ impl MessageCode {
             MessageCode::Stats => 2199,
             MessageCode::StatsDfid => 2204,
             MessageCode::SearchDepth => 2194,
+            MessageCode::Finished => 2186,
             MessageCode::Custom(value) => value,
         }
     }
@@ -103,6 +107,15 @@ impl Diagnostic {
             parameters: vec![NumberFormatter.format(depth.into())],
         }
     }
+
+    /// Final runtime banner (`EC.TLC_FINISHED`).
+    pub fn finished(runtime: String, timestamp: String) -> Self {
+        Diagnostic {
+            code: MessageCode::Finished,
+            class: MessageClass::None,
+            parameters: vec![runtime, timestamp],
+        }
+    }
 }
 
 /// Probability estimates for fingerprint collisions printed in the success banner.
@@ -130,6 +143,8 @@ pub struct RunSummary {
     pub states_left_on_queue: Option<u128>,
     pub search_depth: u64,
     pub fingerprint: Option<FingerprintEstimates>,
+    pub runtime: Duration,
+    pub finished_at: DateTime<FixedOffset>,
 }
 
 impl RunSummary {
@@ -140,6 +155,8 @@ impl RunSummary {
         states_left_on_queue: Option<u128>,
         search_depth: u64,
         fingerprint: Option<FingerprintEstimates>,
+        runtime: Duration,
+        finished_at: DateTime<FixedOffset>,
     ) -> Self {
         Self {
             status,
@@ -148,6 +165,8 @@ impl RunSummary {
             states_left_on_queue,
             search_depth,
             fingerprint,
+            runtime,
+            finished_at,
         }
     }
 }
@@ -329,6 +348,11 @@ impl Formatter {
         let depth = Diagnostic::search_depth(summary.search_depth);
         lines.push(self.format(&depth)?);
 
+        let runtime = format_runtime(summary.runtime, self.tool_mode);
+        let timestamp = format_timestamp(&summary.finished_at);
+        let finished = Diagnostic::finished(runtime, timestamp);
+        lines.push(self.format(&finished)?);
+
         Ok(lines)
     }
 }
@@ -339,6 +363,7 @@ fn render_body(code: MessageCode, params: &[String]) -> Result<String, Formatter
         MessageCode::Stats => render_stats(params, true),
         MessageCode::StatsDfid => render_stats(params, false),
         MessageCode::SearchDepth => render_search_depth(params),
+        MessageCode::Finished => render_finished(params),
         MessageCode::Custom(value) => Err(FormatterError::UnknownCode(value)),
     }
 }
@@ -388,6 +413,47 @@ fn render_search_depth(params: &[String]) -> Result<String, FormatterError> {
         "The depth of the complete state graph search is {}.",
         params[0]
     ))
+}
+
+fn render_finished(params: &[String]) -> Result<String, FormatterError> {
+    ensure_parameter(params, 0, MessageCode::Finished)?;
+    ensure_parameter(params, 1, MessageCode::Finished)?;
+    Ok(format!("Finished in {} at ({})", params[0], params[1]))
+}
+
+fn format_runtime(duration: Duration, tool_mode: bool) -> String {
+    if tool_mode {
+        return format!("{}ms", duration.as_millis());
+    }
+
+    const DAY: Duration = Duration::from_secs(24 * 60 * 60);
+    const HOUR: Duration = Duration::from_secs(60 * 60);
+    const MINUTE: Duration = Duration::from_secs(60);
+
+    if duration >= DAY {
+        let days = duration.as_secs() / DAY.as_secs();
+        let hours = (duration.as_secs() % DAY.as_secs()) / HOUR.as_secs();
+        return format!("{days}d {hours:02}h");
+    }
+
+    if duration >= HOUR {
+        let hours = duration.as_secs() / HOUR.as_secs();
+        let minutes = (duration.as_secs() % HOUR.as_secs()) / MINUTE.as_secs();
+        return format!("{hours:02}h {minutes:02}min");
+    }
+
+    if duration >= MINUTE {
+        let minutes = duration.as_secs() / MINUTE.as_secs();
+        let seconds = duration.as_secs() % MINUTE.as_secs();
+        return format!("{minutes:02}min {seconds:02}s");
+    }
+
+    let seconds = duration.as_secs();
+    format!("{seconds:02}s")
+}
+
+fn format_timestamp(timestamp: &DateTime<FixedOffset>) -> String {
+    timestamp.format("%Y-%m-%d %H:%M:%S").to_string()
 }
 
 fn ensure_parameter(
@@ -454,11 +520,14 @@ impl NumberFormatter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::DateTime;
+    use std::time::Duration;
     use tlc_util::RunStatus;
 
     #[test]
     fn formats_success_banner_with_two_probabilities() {
         let formatter = Formatter::default();
+        let finished_at = DateTime::parse_from_rfc3339("2025-11-02T03:25:45Z").expect("timestamp");
         let summary = RunSummary::new(
             RunStatus::Completed,
             2,
@@ -469,10 +538,12 @@ mod tests {
                 "5.421010862427522E-20",
                 Some("1.0842021724855044E-19".into()),
             )),
+            Duration::from_secs(0),
+            finished_at,
         );
 
         let lines = formatter.format_summary(&summary).expect("summary");
-        assert_eq!(lines.len(), 3);
+        assert_eq!(lines.len(), 4);
         assert_eq!(
             lines[0],
             "Model checking completed. No error has been found.\n  Estimates of the probability that TLC did not check all reachable states\n  because two distinct states had the same fingerprint:\n  calculated (optimistic):  5.421010862427522E-20\n  based on the actual fingerprints:  1.0842021724855044E-19"
@@ -485,11 +556,13 @@ mod tests {
             lines[2],
             "The depth of the complete state graph search is 1."
         );
+        assert_eq!(lines[3], "Finished in 00s at (2025-11-02 03:25:45)");
     }
 
     #[test]
     fn formats_success_banner_with_single_probability() {
         let formatter = Formatter::default();
+        let finished_at = DateTime::parse_from_rfc3339("2025-11-02T04:00:00Z").expect("timestamp");
         let summary = RunSummary::new(
             RunStatus::Completed,
             12345,
@@ -497,6 +570,8 @@ mod tests {
             None,
             42,
             Some(FingerprintEstimates::new("0.0", None)),
+            Duration::from_secs(125),
+            finished_at,
         );
 
         let lines = formatter.format_summary(&summary).expect("summary");
@@ -512,6 +587,7 @@ mod tests {
             lines[2],
             "The depth of the complete state graph search is 42."
         );
+        assert_eq!(lines[3], "Finished in 02min 05s at (2025-11-02 04:00:00)");
     }
 
     #[test]
@@ -522,6 +598,37 @@ mod tests {
         assert_eq!(
             rendered,
             "@!@!@STARTMSG 2199:0 @!@!@\n10 states generated, 5 distinct states found, 1 states left on queue.\n@!@!@ENDMSG 2199 @!@!@"
+        );
+    }
+
+    #[test]
+    fn finished_banner_uses_milliseconds_in_tool_mode() {
+        let formatter = Formatter::new(true);
+        let finished_at = DateTime::parse_from_rfc3339("2025-11-02T06:00:00Z").expect("timestamp");
+        let summary = RunSummary::new(
+            RunStatus::Failed,
+            2048,
+            1024,
+            Some(2),
+            64,
+            None,
+            Duration::from_millis(750),
+            finished_at,
+        );
+
+        let lines = formatter.format_summary(&summary).expect("summary");
+        assert_eq!(lines.len(), 3);
+        assert_eq!(
+            lines[0],
+            "@!@!@STARTMSG 2199:0 @!@!@\n2,048 states generated, 1,024 distinct states found, 2 states left on queue.\n@!@!@ENDMSG 2199 @!@!@"
+        );
+        assert_eq!(
+            lines[1],
+            "@!@!@STARTMSG 2194:0 @!@!@\nThe depth of the complete state graph search is 64.\n@!@!@ENDMSG 2194 @!@!@"
+        );
+        assert_eq!(
+            lines[2],
+            "@!@!@STARTMSG 2186:0 @!@!@\nFinished in 750ms at (2025-11-02 06:00:00)\n@!@!@ENDMSG 2186 @!@!@"
         );
     }
 
@@ -537,7 +644,17 @@ mod tests {
     #[test]
     fn summary_requires_fingerprint_for_completed_runs() {
         let formatter = Formatter::default();
-        let summary = RunSummary::new(RunStatus::Completed, 1, 1, Some(0), 1, None);
+        let finished_at = DateTime::parse_from_rfc3339("2025-11-02T05:00:00Z").expect("timestamp");
+        let summary = RunSummary::new(
+            RunStatus::Completed,
+            1,
+            1,
+            Some(0),
+            1,
+            None,
+            Duration::from_secs(5),
+            finished_at,
+        );
 
         let error = formatter
             .format_summary(&summary)

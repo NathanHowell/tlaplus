@@ -1150,6 +1150,42 @@ mod tests {
     use std::{io::Write, process::Command};
     use tempfile::tempdir;
 
+    const FINAL_SUMMARY: &str = concat!(
+        "Model checking completed. No error has been found.\n",
+        "  Estimates of the probability that TLC did not check all reachable states\n",
+        "  because two distinct states had the same fingerprint:\n",
+        "  calculated (optimistic):  1.0000000000000000E-12\n",
+        "  based on the actual fingerprints:  2.0000000000000000E-12\n",
+        "1,337 states generated, 1,000 distinct states found, 0 states left on queue.\n",
+        "The depth of the complete state graph search is 7.\n",
+        "Finished in 02min 05s at (2025-11-02 04:00:00)"
+    );
+
+    const MISMATCHED_FINAL_SUMMARY: &str = concat!(
+        "Model checking completed. No error has been found.\n",
+        "  Estimates of the probability that TLC did not check all reachable states\n",
+        "  because two distinct states had the same fingerprint:\n",
+        "  calculated (optimistic):  1.0000000000000000E-12\n",
+        "  based on the actual fingerprints:  2.0000000000000000E-12\n",
+        "1,337 states generated, 1,000 distinct states found, 0 states left on queue.\n",
+        "The depth of the complete state graph search is 7.\n",
+        "Finished in 02min 06s at (2025-11-02 04:00:00)"
+    );
+
+    fn escape_for_string_literal(input: &str) -> String {
+        let mut escaped = String::with_capacity(input.len());
+        for ch in input.chars() {
+            match ch {
+                '\\' => escaped.push_str("\\\\"),
+                '"' => escaped.push_str("\\\""),
+                '\n' => escaped.push_str("\\n"),
+                '\r' => escaped.push_str("\\r"),
+                _ => escaped.push(ch),
+            }
+        }
+        escaped
+    }
+
     fn stub_with_progress(stdout: &str, events: &[&str]) -> String {
         let mut code = String::new();
         code.push_str("use std::fs::{self, OpenOptions};\n");
@@ -1158,7 +1194,7 @@ mod tests {
         code.push_str("    write_metrics().expect(\"metrics log written\");\n");
         code.push_str("    emit_progress().expect(\"progress stream written\");\n");
         code.push_str("    println!(\"");
-        code.push_str(stdout);
+        code.push_str(&escape_for_string_literal(stdout));
         code.push_str("\");\n");
         code.push_str("}\n\n");
         code.push_str("fn write_metrics() -> std::io::Result<()> {\n");
@@ -1211,7 +1247,7 @@ mod tests {
         code.push_str("fn main() {\n");
         code.push_str("    write_metrics().expect(\"metrics log written\");\n");
         code.push_str("    println!(\"");
-        code.push_str(stdout);
+        code.push_str(&escape_for_string_literal(stdout));
         code.push_str("\");\n");
         code.push_str("}\n\n");
         code.push_str("fn write_metrics() -> std::io::Result<()> {\n");
@@ -1242,7 +1278,10 @@ mod tests {
     }
 
     fn missing_metrics_stub_source(stdout: &str) -> String {
-        format!("fn main() {{\n    println!(\"{}\");\n}}\n", stdout)
+        format!(
+            "fn main() {{\n    println!(\"{}\");\n}}\n",
+            escape_for_string_literal(stdout)
+        )
     }
 
     fn invalid_metrics_stub_source() -> String {
@@ -1419,7 +1458,7 @@ deprecated_flags = ["tool"]
         fs::write(&spec_b, "---- MODULE SpecB ----").unwrap();
 
         let output_dir = temp.path().join("artifacts");
-        let stub_source = metrics_stub_source("parity stub output");
+        let stub_source = metrics_stub_source(FINAL_SUMMARY);
         let stub = build_stub_binary(temp.path(), "tlc_stub_match", &stub_source);
 
         let config = HarnessConfig {
@@ -1463,6 +1502,10 @@ deprecated_flags = ["tool"]
                 contents.contains("Status: Match"),
                 "diff contents should mention match status"
             );
+            assert!(
+                contents.contains("Finished in 02min 05s"),
+                "diff should record final summary banner"
+            );
         }
     }
 
@@ -1475,17 +1518,10 @@ deprecated_flags = ["tool"]
         fs::create_dir_all(specs_root.join("SpecA")).unwrap();
 
         let output_dir = temp.path().join("artifacts");
-        let rust_stub_source = metrics_stub_source("rust output");
+        let rust_stub_source = metrics_stub_source(FINAL_SUMMARY);
         let rust_stub = build_stub_binary(temp.path(), "rust_stub", &rust_stub_source);
-        let legacy_stub = build_stub_binary(
-            temp.path(),
-            "legacy_stub",
-            r#"
-fn main() {
-    println!("legacy output");
-}
-"#,
-        );
+        let legacy_stub_source = metrics_stub_source(MISMATCHED_FINAL_SUMMARY);
+        let legacy_stub = build_stub_binary(temp.path(), "legacy_stub", &legacy_stub_source);
 
         let config = HarnessConfig {
             legacy_launcher: legacy_stub,
@@ -1513,8 +1549,9 @@ fn main() {
         let diff_path = output_dir.join(&report.diff_artifact);
         let contents = fs::read_to_string(diff_path).unwrap();
         assert!(
-            contents.contains("rust output") && contents.contains("legacy output"),
-            "diff contents should capture both outputs"
+            contents.contains("Finished in 02min 05s")
+                && contents.contains("Finished in 02min 06s"),
+            "diff contents should capture divergent final summaries"
         );
     }
 
@@ -1526,7 +1563,7 @@ fn main() {
         fs::write(specs_root.join("SpecA.tla"), "---- MODULE SpecA ----").unwrap();
 
         let output_dir = temp.path().join("artifacts");
-        let rust_stub_source = metrics_stub_source("rust output");
+        let rust_stub_source = metrics_stub_source(FINAL_SUMMARY);
         let rust_stub = build_stub_binary(temp.path(), "rust_stub_inconclusive", &rust_stub_source);
 
         let config = HarnessConfig {
@@ -1568,7 +1605,7 @@ fn main() {
         fs::write(specs_root.join("SpecA.tla"), "---- MODULE SpecA ----").unwrap();
 
         let output_dir = temp.path().join("artifacts");
-        let rust_stub_source = missing_metrics_stub_source("rust output");
+        let rust_stub_source = missing_metrics_stub_source(FINAL_SUMMARY);
         let rust_stub =
             build_stub_binary(temp.path(), "rust_stub_missing_metrics", &rust_stub_source);
 
@@ -1598,7 +1635,7 @@ fn main() {
         fs::write(specs_root.join("SpecA.tla"), "---- MODULE SpecA ----").unwrap();
 
         let output_dir = temp.path().join("artifacts");
-        let rust_stub_source = missing_progress_stub_source("rust output");
+        let rust_stub_source = missing_progress_stub_source(FINAL_SUMMARY);
         let rust_stub =
             build_stub_binary(temp.path(), "rust_stub_missing_progress", &rust_stub_source);
 
@@ -1628,7 +1665,7 @@ fn main() {
         fs::write(specs_root.join("SpecA.tla"), "---- MODULE SpecA ----").unwrap();
 
         let output_dir = temp.path().join("artifacts");
-        let rust_stub_source = progress_violation_stub_source("rust output");
+        let rust_stub_source = progress_violation_stub_source(FINAL_SUMMARY);
         let rust_stub = build_stub_binary(
             temp.path(),
             "rust_stub_progress_violation",
