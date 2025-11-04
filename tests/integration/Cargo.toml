@@ -45,3 +45,7 @@ path = "progress_tty.rs"
 [[test]]
 name = "progress_validation"
 path = "progress_validation.rs"
+
+[[test]]
+name = "engine_scaling"
+path = "engine_scaling.rs"
