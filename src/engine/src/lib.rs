@@ -15,10 +15,12 @@ use tlc_util::{
 mod metrics;
 mod progress;
 mod resume;
+mod scheduler;
 
 pub use metrics::{RunMetrics, RunMetricsRecorder};
 pub use progress::{ProgressEmitter, ProgressSnapshot};
 pub use resume::{prepare_resume, ResumeContext, ResumeError, ResumeLineage, ResumeRequest};
+pub use scheduler::{Result as SchedulerResult, SchedulerError, WorkerScheduler};
 
 /// Slice of the frontier assigned to a single worker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
