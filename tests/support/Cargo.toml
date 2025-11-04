@@ -1,0 +1,14 @@
+[package]
+name = "tlc-test-support"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tlc-progress = { path = "../../src/progress" }
+

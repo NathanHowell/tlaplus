@@ -14,9 +14,11 @@ tracing.workspace = true
 clap.workspace = true
 globset.workspace = true
 tlc-engine = { path = "../../src/engine" }
+tlc-test-support = { path = "../support" }
 proptest.workspace = true
 toml.workspace = true
 ulid.workspace = true
+chrono.workspace = true
 
 [lib]
 path = "src/lib.rs"

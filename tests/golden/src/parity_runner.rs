@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tempfile::TempDir;
 use tlc_engine::{partition_frontier, FrontierSlice};
+use tlc_test_support::progress::{analyze_progress, parse_progress_ndjson, ProgressThresholds};
 use ulid::Ulid;
 
 /// CLI arguments for the parity harness stub.
@@ -346,6 +347,9 @@ impl HarnessContext {
             args.push(config.clone().into_os_string());
         }
 
+        args.push(OsString::from("--progress"));
+        args.push(OsString::from("ndjson"));
+
         if let Some(workers) = self.config.workers {
             args.push(OsString::from("--workers"));
             args.push(OsString::from(workers.to_string()));
@@ -359,7 +363,8 @@ impl HarnessContext {
         });
 
         if result.executed() {
-            validate_run_metrics(&result.descriptor.working_dir)?;
+            let metrics = validate_run_metrics(&result.descriptor.working_dir)?;
+            validate_progress_accuracy(&result.stdout, &metrics)?;
         }
 
         Ok(result)
@@ -757,6 +762,11 @@ impl ExecutionResult {
     }
 }
 
+#[derive(Debug, Clone)]
+struct RunMetrics {
+    states_explored: u128,
+}
+
 fn run_command(descriptor: CommandDescriptor) -> ExecutionResult {
     if !descriptor.binary.exists() {
         let message = format!("binary '{}' not found", descriptor.binary.display());
@@ -814,7 +824,7 @@ fn clear_metrics_log(working_dir: &Path) {
     }
 }
 
-fn validate_run_metrics(working_dir: &Path) -> Result<()> {
+fn validate_run_metrics(working_dir: &Path) -> Result<RunMetrics> {
     let log_path = metrics_log_path(working_dir);
     let contents = fs::read_to_string(&log_path).with_context(|| {
         format!(
@@ -852,7 +862,7 @@ fn validate_run_metrics(working_dir: &Path) -> Result<()> {
         }
 
         let run_id_str = parse_string_field(fields, "run_id")?;
-        Ulid::from_str(run_id_str)
+        let _run_id = Ulid::from_str(run_id_str)
             .with_context(|| format!("run metrics recorded invalid run_id '{}'", run_id_str))?;
 
         let runtime_ms = parse_f64_field(fields, "runtime_ms")?;
@@ -868,11 +878,11 @@ fn validate_run_metrics(working_dir: &Path) -> Result<()> {
             "run metrics reported zero states explored"
         );
 
-        let _throughput = parse_f64_field(fields, "states_per_second")?;
-        let _peak_memory = parse_u64_field(fields, "peak_memory_bytes")?;
-        let _peak_reported = parse_bool_field(fields, "peak_memory_reported")?;
+        let _states_per_second = parse_f64_field(fields, "states_per_second")?;
+        let _peak_memory_bytes = parse_u64_field(fields, "peak_memory_bytes")?;
+        let _peak_memory_reported = parse_bool_field(fields, "peak_memory_reported")?;
 
-        return Ok(());
+        return Ok(RunMetrics { states_explored });
     }
 
     Err(anyhow!(
@@ -883,6 +893,29 @@ fn validate_run_metrics(working_dir: &Path) -> Result<()> {
 
 fn metrics_log_path(working_dir: &Path) -> PathBuf {
     working_dir.join("logs").join("tlc-trace.json")
+}
+
+fn validate_progress_accuracy(stdout: &str, metrics: &RunMetrics) -> Result<()> {
+    let samples = parse_progress_ndjson(stdout)
+        .context("failed to parse progress NDJSON from Rust TLC stdout")?;
+    let thresholds = ProgressThresholds::default();
+    let analysis = analyze_progress(&samples, metrics.states_explored)
+        .context("progress accuracy analysis failed")?;
+
+    if !analysis.meets(&thresholds) {
+        let max_gap_secs = analysis.max_refresh_gap().num_milliseconds() as f64 / 1_000.0;
+        let allowed_gap_secs = thresholds.max_refresh_gap.num_milliseconds() as f64 / 1_000.0;
+        return Err(anyhow!(
+            "progress thresholds violated: max refresh gap {:.2}s (allowed {:.2}s), coverage delta {:.2}% (allowed {:.2}%), events observed {}",
+            max_gap_secs,
+            allowed_gap_secs,
+            analysis.coverage_delta(),
+            thresholds.max_coverage_delta,
+            analysis.event_count()
+        ));
+    }
+
+    Ok(())
 }
 
 fn parse_string_field<'a>(
@@ -1117,7 +1150,61 @@ mod tests {
     use std::{io::Write, process::Command};
     use tempfile::tempdir;
 
+    fn stub_with_progress(stdout: &str, events: &[&str]) -> String {
+        let mut code = String::new();
+        code.push_str("use std::fs::{self, OpenOptions};\n");
+        code.push_str("use std::io::Write;\n\n");
+        code.push_str("fn main() {\n");
+        code.push_str("    write_metrics().expect(\"metrics log written\");\n");
+        code.push_str("    emit_progress().expect(\"progress stream written\");\n");
+        code.push_str("    println!(\"");
+        code.push_str(stdout);
+        code.push_str("\");\n");
+        code.push_str("}\n\n");
+        code.push_str("fn write_metrics() -> std::io::Result<()> {\n");
+        code.push_str("    let cwd = std::env::current_dir()?;\n");
+        code.push_str("    let log_dir = cwd.join(\"logs\");\n");
+        code.push_str("    fs::create_dir_all(&log_dir)?;\n");
+        code.push_str("    let log_path = log_dir.join(\"tlc-trace.json\");\n");
+        code.push_str("    let mut file = OpenOptions::new()\n");
+        code.push_str("        .create(true)\n");
+        code.push_str("        .write(true)\n");
+        code.push_str("        .truncate(true)\n");
+        code.push_str("        .open(&log_path)?;\n");
+        code.push_str("    let payload = r#\"{\"timestamp\":\"2025-11-02T00:00:00Z\",\"level\":\"INFO\",\"fields\":{\"message\":\"run metrics recorded\",\"metric\":\"run_metrics\",\"run_id\":\"01ARZ3NDEKTSV4RRFFQ69G5FAV\",\"runtime_ms\":2000.0,\"states_explored\":\"1337\",\"states_per_second\":668.5,\"peak_memory_bytes\":\"1048576\",\"peak_memory_reported\":true}}\"#;\n");
+        code.push_str("    writeln!(file, \"{payload}\")?;\n");
+        code.push_str("    Ok(())\n");
+        code.push_str("}\n");
+        code.push_str("\n");
+        code.push_str("fn emit_progress() -> std::io::Result<()> {\n");
+        code.push_str("    let events = [\n");
+        for event in events {
+            code.push_str("        ");
+            code.push_str("r#\"");
+            code.push_str(event);
+            code.push_str("\"#");
+            code.push_str(",\n");
+        }
+        code.push_str("    ];\n");
+        code.push_str("    for event in &events {\n");
+        code.push_str("        println!(\"{}\", event);\n");
+        code.push_str("    }\n");
+        code.push_str("    Ok(())\n");
+        code.push_str("}\n");
+        code
+    }
+
     fn metrics_stub_source(stdout: &str) -> String {
+        let events = [
+            r#"{"event_id":"01J5F7K4MZQ8X5Y3S9B7C6D8FA","run_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","timestamp":"2025-11-02T00:00:00Z","states_explored":"0","percent_complete":0.0,"throughput_eps":0.0,"workers_active":4}"#,
+            r#"{"event_id":"01J5F7K4MZQ8X5Y3S9B7C6D8FB","run_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","timestamp":"2025-11-02T00:00:03Z","states_explored":"400","percent_complete":30.0,"throughput_eps":150.0,"workers_active":4,"eta_seconds":7}"#,
+            r#"{"event_id":"01J5F7K4MZQ8X5Y3S9B7C6D8FC","run_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","timestamp":"2025-11-02T00:00:06Z","states_explored":"900","percent_complete":65.0,"throughput_eps":180.0,"workers_active":4,"eta_seconds":4}"#,
+            r#"{"event_id":"01J5F7K4MZQ8X5Y3S9B7C6D8FD","run_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","timestamp":"2025-11-02T00:00:09Z","states_explored":"1337","percent_complete":100.0,"throughput_eps":200.0,"workers_active":4}"#,
+        ];
+        stub_with_progress(stdout, &events)
+    }
+
+    fn missing_progress_stub_source(stdout: &str) -> String {
         let mut code = String::new();
         code.push_str("use std::fs::{self, OpenOptions};\n");
         code.push_str("use std::io::Write;\n\n");
@@ -1142,6 +1229,16 @@ mod tests {
         code.push_str("    Ok(())\n");
         code.push_str("}\n");
         code
+    }
+
+    fn progress_violation_stub_source(stdout: &str) -> String {
+        let events = [
+            r#"{"event_id":"01J5F7K4MZQ8X5Y3S9B7C6D8FE","run_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","timestamp":"2025-11-02T00:00:00Z","states_explored":"0","percent_complete":0.0,"throughput_eps":0.0,"workers_active":4}"#,
+            r#"{"event_id":"01J5F7K4MZQ8X5Y3S9B7C6D8FF","run_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","timestamp":"2025-11-02T00:00:12Z","states_explored":"400","percent_complete":30.0,"throughput_eps":33.0,"workers_active":4,"eta_seconds":20}"#,
+            r#"{"event_id":"01J5F7K4MZQ8X5Y3S9B7C6D8FG","run_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","timestamp":"2025-11-02T00:00:27Z","states_explored":"900","percent_complete":65.0,"throughput_eps":20.0,"workers_active":4,"eta_seconds":15}"#,
+            r#"{"event_id":"01J5F7K4MZQ8X5Y3S9B7C6D8FH","run_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","timestamp":"2025-11-02T00:00:45Z","states_explored":"1337","percent_complete":85.0,"throughput_eps":10.0,"workers_active":4}"#,
+        ];
+        stub_with_progress(stdout, &events)
     }
 
     fn missing_metrics_stub_source(stdout: &str) -> String {
@@ -1490,6 +1587,69 @@ fn main() {
         assert!(
             message.contains("run metrics"),
             "error should mention run metrics validation, got: {message}"
+        );
+    }
+
+    #[test]
+    fn fails_when_progress_events_missing() {
+        let temp = tempdir().expect("temp dir");
+        let specs_root = temp.path().join("specs");
+        fs::create_dir_all(&specs_root).unwrap();
+        fs::write(specs_root.join("SpecA.tla"), "---- MODULE SpecA ----").unwrap();
+
+        let output_dir = temp.path().join("artifacts");
+        let rust_stub_source = missing_progress_stub_source("rust output");
+        let rust_stub =
+            build_stub_binary(temp.path(), "rust_stub_missing_progress", &rust_stub_source);
+
+        let config = HarnessConfig {
+            legacy_launcher: rust_stub.clone(),
+            specs_root: specs_root.clone(),
+            filter: None,
+            output_dir,
+            rust_binary: rust_stub,
+            workers: None,
+            golden_cache: None,
+        };
+
+        let error = run_with_config(config).expect_err("missing progress should fail");
+        let message = format!("{error:#}");
+        assert!(
+            message.contains("progress"),
+            "error should mention progress validation, got: {message}"
+        );
+    }
+
+    #[test]
+    fn fails_when_progress_thresholds_exceeded() {
+        let temp = tempdir().expect("temp dir");
+        let specs_root = temp.path().join("specs");
+        fs::create_dir_all(&specs_root).unwrap();
+        fs::write(specs_root.join("SpecA.tla"), "---- MODULE SpecA ----").unwrap();
+
+        let output_dir = temp.path().join("artifacts");
+        let rust_stub_source = progress_violation_stub_source("rust output");
+        let rust_stub = build_stub_binary(
+            temp.path(),
+            "rust_stub_progress_violation",
+            &rust_stub_source,
+        );
+
+        let config = HarnessConfig {
+            legacy_launcher: rust_stub.clone(),
+            specs_root: specs_root.clone(),
+            filter: None,
+            output_dir,
+            rust_binary: rust_stub,
+            workers: None,
+            golden_cache: None,
+        };
+
+        let error = run_with_config(config).expect_err("progress violation should fail");
+        let message = format!("{error:#}");
+        assert!(
+            message.contains("progress thresholds violated"),
+            "error should mention thresholds violation, got: {message}"
         );
     }
 

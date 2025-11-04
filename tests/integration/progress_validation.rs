@@ -1,107 +1,21 @@
 use std::num::NonZeroU16;
 
-use anyhow::{ensure, Result};
+use anyhow::Result;
 use chrono::{Duration as ChronoDuration, TimeZone, Utc};
 use tlc_engine::{ProgressEmitter, ProgressSnapshot};
 use tlc_progress::ProgressEvent;
+use tlc_test_support::progress::{analyze_progress, ProgressSample, ProgressThresholds};
 use ulid::Ulid;
-
-#[derive(Debug, Clone, Copy)]
-struct ProgressThresholds {
-    max_refresh_gap: ChronoDuration,
-    max_coverage_delta: f32,
-}
-
-impl Default for ProgressThresholds {
-    fn default() -> Self {
-        Self {
-            max_refresh_gap: ChronoDuration::seconds(5),
-            max_coverage_delta: 2.0,
-        }
-    }
-}
-
-#[derive(Debug)]
-struct ProgressRunAnalysis {
-    event_count: usize,
-    max_refresh_gap: ChronoDuration,
-    final_reported_percent: f32,
-    actual_percent: f32,
-}
-
-impl ProgressRunAnalysis {
-    fn coverage_delta(&self) -> f32 {
-        (self.final_reported_percent - self.actual_percent).abs()
-    }
-
-    fn meets(&self, thresholds: &ProgressThresholds) -> bool {
-        self.max_refresh_gap <= thresholds.max_refresh_gap
-            && self.coverage_delta() <= thresholds.max_coverage_delta
-    }
-
-    fn max_refresh_gap(&self) -> ChronoDuration {
-        self.max_refresh_gap
-    }
-}
-
-fn analyze_progress(
-    events: &[ProgressEvent],
-    expected_total_states: u128,
-) -> Result<ProgressRunAnalysis> {
-    ensure!(
-        !events.is_empty(),
-        "progress validation requires at least one event"
-    );
-    ensure!(
-        expected_total_states > 0,
-        "expected_total_states must be greater than zero"
-    );
-
-    let mut max_gap = ChronoDuration::zero();
-    let mut previous_timestamp = events[0].timestamp();
-    let mut final_states = events[0].states_explored();
-    let mut final_percent = events[0].percent_complete();
-
-    for event in events.iter().skip(1) {
-        let delta = event.timestamp().signed_duration_since(previous_timestamp);
-        ensure!(
-            delta >= ChronoDuration::zero(),
-            "progress events must be ordered by timestamp"
-        );
-
-        if delta > max_gap {
-            max_gap = delta;
-        }
-
-        previous_timestamp = event.timestamp();
-        final_states = event.states_explored();
-        final_percent = event.percent_complete();
-    }
-
-    let actual_fraction =
-        (final_states.min(expected_total_states) as f64) / (expected_total_states as f64);
-    let actual_percent = (actual_fraction * 100.0).min(100.0) as f32;
-
-    Ok(ProgressRunAnalysis {
-        event_count: events.len(),
-        max_refresh_gap: max_gap,
-        final_reported_percent: final_percent,
-        actual_percent,
-    })
-}
 
 #[test]
 fn progress_harness_accepts_sequences_within_thresholds() -> Result<()> {
     let (events, expected_total) = sample_events_within_thresholds()?;
-    let analysis = analyze_progress(&events, expected_total)?;
+    let samples: Vec<ProgressSample> = events.iter().map(ProgressSample::from).collect();
+    let analysis = analyze_progress(&samples, expected_total)?;
     let thresholds = ProgressThresholds::default();
 
-    assert_eq!(analysis.event_count, events.len());
-    assert!(
-        analysis.meets(&thresholds),
-        "analysis should meet thresholds: {:?}",
-        analysis
-    );
+    assert_eq!(analysis.event_count(), events.len());
+    assert!(analysis.meets(&thresholds));
 
     Ok(())
 }
@@ -109,10 +23,11 @@ fn progress_harness_accepts_sequences_within_thresholds() -> Result<()> {
 #[test]
 fn progress_harness_flags_refresh_and_coverage_violations() -> Result<()> {
     let (events, expected_total) = sample_events_with_violations()?;
-    let analysis = analyze_progress(&events, expected_total)?;
+    let samples: Vec<ProgressSample> = events.iter().map(ProgressSample::from).collect();
+    let analysis = analyze_progress(&samples, expected_total)?;
     let thresholds = ProgressThresholds::default();
 
-    assert_eq!(analysis.event_count, events.len());
+    assert_eq!(analysis.event_count(), events.len());
     assert!(
         analysis.max_refresh_gap() > thresholds.max_refresh_gap,
         "expected refresh gap violation (max gap {:?})",
