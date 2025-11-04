@@ -1,3 +1,4 @@
+use std::io::{self, IsTerminal};
 use std::num::ParseIntError;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -174,6 +175,47 @@ pub enum ProgressMode {
     Ndjson,
 }
 
+/// Concrete progress renderer selection after accounting for environment constraints.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProgressRenderer {
+    Tty,
+    Ndjson,
+}
+
+impl ProgressRenderer {
+    pub fn mode(self) -> ProgressMode {
+        match self {
+            ProgressRenderer::Tty => ProgressMode::Tty,
+            ProgressRenderer::Ndjson => ProgressMode::Ndjson,
+        }
+    }
+}
+
+impl OutputOptions {
+    /// Resolve the requested progress mode into a renderer compatible with the current stdout.
+    pub fn resolve_progress(&self) -> ProgressRenderer {
+        self.resolve_progress_internal(io::stdout().is_terminal())
+    }
+
+    /// Resolve the progress mode into a `ProgressMode` suitable for configuration structs.
+    pub fn resolve_progress_mode(&self) -> ProgressMode {
+        self.resolve_progress().mode()
+    }
+
+    fn resolve_progress_internal(&self, stdout_is_terminal: bool) -> ProgressRenderer {
+        match self.progress {
+            ProgressMode::Ndjson => ProgressRenderer::Ndjson,
+            ProgressMode::Tty if stdout_is_terminal => ProgressRenderer::Tty,
+            ProgressMode::Tty => ProgressRenderer::Ndjson,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn resolve_progress_for(&self, stdout_is_terminal: bool) -> ProgressRenderer {
+        self.resolve_progress_internal(stdout_is_terminal)
+    }
+}
+
 /// Acceptable values for `--telemetry`.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
 pub enum TelemetryMode {
@@ -319,5 +361,43 @@ impl ValueEnum for TraceDumpFormat {
             TraceDumpFormat::Dot => PossibleValue::new("dot"),
             TraceDumpFormat::Tla => PossibleValue::new("tla"),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn default_options(progress: ProgressMode) -> OutputOptions {
+        OutputOptions {
+            progress,
+            telemetry: TelemetryMode::Local,
+            otlp_endpoint: None,
+        }
+    }
+
+    #[test]
+    fn tty_progress_selected_when_terminal() {
+        let options = default_options(ProgressMode::Tty);
+        assert_eq!(options.resolve_progress_for(true), ProgressRenderer::Tty);
+    }
+
+    #[test]
+    fn tty_progress_falls_back_to_ndjson_without_terminal() {
+        let options = default_options(ProgressMode::Tty);
+        assert_eq!(
+            options.resolve_progress_for(false),
+            ProgressRenderer::Ndjson
+        );
+    }
+
+    #[test]
+    fn explicit_ndjson_request_remains_ndjson() {
+        let options = default_options(ProgressMode::Ndjson);
+        assert_eq!(options.resolve_progress_for(true), ProgressRenderer::Ndjson);
+        assert_eq!(
+            options.resolve_progress_for(false),
+            ProgressRenderer::Ndjson
+        );
     }
 }

@@ -19,7 +19,9 @@ use commands::{
     Cli, Command, MemoryLimit, ParameterOverride, ProgressMode, ResumeCommand, RunCommand,
     TelemetryMode, TraceDumpFormat,
 };
-use input_loader::{load_run_inputs, DumpTraceConfig, RunInputs, RunOptions};
+use input_loader::{
+    load_run_inputs, load_run_inputs_with_progress, DumpTraceConfig, RunInputs, RunOptions,
+};
 use tlc_checkpoint::{CheckpointStore, StoreOptions};
 use tlc_engine::{
     prepare_resume, prepare_run, DumpTraceOptions, EngineOptions, ResumeRequest, TraceExportFormat,
@@ -47,7 +49,9 @@ fn main() -> Result<()> {
 }
 
 fn execute_run(command: RunCommand) -> Result<()> {
-    let inputs = load_run_inputs(&command).map_err(anyhow::Error::new)?;
+    let progress_mode = command.output.resolve_progress_mode();
+    let inputs =
+        load_run_inputs_with_progress(&command, progress_mode).map_err(anyhow::Error::new)?;
 
     let _telemetry_guard = install_telemetry(
         inputs.configuration.telemetry_mode,
@@ -91,7 +95,9 @@ fn execute_run(command: RunCommand) -> Result<()> {
 fn execute_resume(command: ResumeCommand) -> Result<()> {
     let manifest = load_manifest(&command.checkpoint)?;
     let resume_command = build_resume_command(&manifest, &command)?;
-    let inputs = load_run_inputs(&resume_command).map_err(anyhow::Error::new)?;
+    let progress_mode = resume_command.output.resolve_progress_mode();
+    let inputs = load_run_inputs_with_progress(&resume_command, progress_mode)
+        .map_err(anyhow::Error::new)?;
 
     let mut request = ResumeRequest::new(&command.checkpoint);
     if command.ignore_hash {

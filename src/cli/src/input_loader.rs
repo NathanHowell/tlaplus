@@ -85,6 +85,13 @@ pub type Result<T> = std::result::Result<T, InputError>;
 
 /// Convert a parsed [`RunCommand`] into validated TLC runtime inputs.
 pub fn load_run_inputs(command: &RunCommand) -> Result<RunInputs> {
+    load_run_inputs_with_progress(command, command.output.progress)
+}
+
+pub fn load_run_inputs_with_progress(
+    command: &RunCommand,
+    progress_mode: ProgressMode,
+) -> Result<RunInputs> {
     let spec_path = canonicalize_module(&command.spec)?;
     let spec_dir = spec_path
         .parent()
@@ -106,7 +113,7 @@ pub fn load_run_inputs(command: &RunCommand) -> Result<RunInputs> {
     let workers = resolve_workers(command.workers)?;
     let memory_limit = command.memory_limit.map(|MemoryLimit(value)| value);
     let telemetry_mode = map_telemetry(command.output.telemetry);
-    let progress_mode = map_progress(command.output.progress);
+    let progress_mode = map_progress(progress_mode);
     let configuration = RunConfiguration::new(
         Ulid::new(),
         workers,
