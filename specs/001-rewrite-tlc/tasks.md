@@ -141,7 +141,7 @@ description: "Task list for Native TLC Command Line Tool"
 
 - [X] T038 [P] [US3] Implement worker scheduler leveraging `rayon` for state exploration in `src/engine/src/scheduler.rs`
 - [X] T039 [P] [US3] Implement crossbeam-backed work queues and throttling in `src/engine/src/work_queue.rs`
-- [ ] T040 [US3] Integrate worker configuration, memory guards, and defaults in `src/engine/src/config.rs`
+- [X] T040 [US3] Integrate worker configuration, memory guards, and defaults in `src/engine/src/config.rs`
 - [ ] T041 [US3] Wire CLI worker/memory flags and defaults into command parsing in `src/cli/src/commands.rs`
 - [ ] T042 [P] [US3] Emit worker utilization telemetry with configurable 70% alert thresholds in `src/telemetry/src/workers.rs`
 - [ ] T057 [US3] Document scheduler extension seams and handoff contracts in `docs/migration/tlc-scheduler-extension.md`

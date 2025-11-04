@@ -1,6 +1,10 @@
 //! Core exploration engine entrypoint and invariants for the TLC rewrite.
 
-use std::{num::NonZeroUsize, path::PathBuf, time::Duration};
+use std::{
+    num::{NonZeroU16, NonZeroUsize},
+    path::PathBuf,
+    time::Duration,
+};
 
 use anyhow::Result as AnyhowResult;
 use chrono::{DateTime, Utc};
@@ -12,12 +16,14 @@ use tlc_util::{
     ValidationError,
 };
 
+mod config;
 mod metrics;
 mod progress;
 mod resume;
 mod scheduler;
 mod work_queue;
 
+pub use config::{EngineSizing, MemoryGuard};
 pub use metrics::{RunMetrics, RunMetricsRecorder};
 pub use progress::{ProgressEmitter, ProgressSnapshot};
 pub use resume::{prepare_resume, ResumeContext, ResumeError, ResumeLineage, ResumeRequest};
@@ -195,7 +201,7 @@ pub struct RunContext {
     specification: SpecificationPackage,
     configuration: RunConfiguration,
     options: EngineOptions,
-    worker_count: NonZeroUsize,
+    sizing: EngineSizing,
     prepared_at: DateTime<Utc>,
 }
 
@@ -217,7 +223,17 @@ impl RunContext {
 
     /// Retrieve the worker count as a `NonZeroUsize` for runtime scheduling.
     pub fn worker_count(&self) -> NonZeroUsize {
-        self.worker_count
+        self.sizing.worker_threads()
+    }
+
+    /// Retrieve the originally configured worker count as `NonZeroU16`.
+    pub fn configured_workers(&self) -> NonZeroU16 {
+        self.sizing.configured_workers()
+    }
+
+    /// Access the derived engine sizing (workers, memory guards, queue capacity).
+    pub fn engine_sizing(&self) -> &EngineSizing {
+        &self.sizing
     }
 
     /// Timestamp indicating when the engine context was prepared.
@@ -257,7 +273,7 @@ impl RunContext {
             self.specification,
             self.configuration,
             self.options,
-            self.worker_count,
+            self.sizing.worker_threads(),
             self.prepared_at,
         )
     }
@@ -272,8 +288,8 @@ pub fn prepare_run(
     specification.validate()?;
     configuration.validate()?;
 
-    let worker_count =
-        NonZeroUsize::new(configuration.workers.get() as usize).expect("u16 > 0 converts to usize");
+    let sizing = EngineSizing::from_configuration(&configuration);
+    let worker_count = sizing.worker_threads();
     enforce_partition_invariants(worker_count)?;
 
     let options = options.normalize(configuration.telemetry_mode)?;
@@ -290,7 +306,7 @@ pub fn prepare_run(
         specification,
         configuration,
         options,
-        worker_count,
+        sizing,
         prepared_at,
     })
 }
