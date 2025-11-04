@@ -22,6 +22,7 @@ use commands::{
 use input_loader::{
     load_run_inputs, load_run_inputs_with_progress, DumpTraceConfig, RunInputs, RunOptions,
 };
+use output::OutputConfig;
 use tlc_checkpoint::{CheckpointStore, StoreOptions};
 use tlc_engine::{
     prepare_resume, prepare_run, DumpTraceOptions, EngineOptions, ResumeRequest, TraceExportFormat,
@@ -52,6 +53,8 @@ fn execute_run(command: RunCommand) -> Result<()> {
     let progress_mode = command.output.resolve_progress_mode();
     let inputs =
         load_run_inputs_with_progress(&command, progress_mode).map_err(anyhow::Error::new)?;
+
+    output::install(output_config_from(&inputs.options))?;
 
     let _telemetry_guard = install_telemetry(
         inputs.configuration.telemetry_mode,
@@ -98,6 +101,8 @@ fn execute_resume(command: ResumeCommand) -> Result<()> {
     let progress_mode = resume_command.output.resolve_progress_mode();
     let inputs = load_run_inputs_with_progress(&resume_command, progress_mode)
         .map_err(anyhow::Error::new)?;
+
+    output::install(output_config_from(&inputs.options))?;
 
     let mut request = ResumeRequest::new(&command.checkpoint);
     if command.ignore_hash {
@@ -189,12 +194,25 @@ fn engine_options_from(options: &RunOptions) -> EngineOptions {
         suppress_warnings: options.suppress_warnings,
         diff_trace: options.diff_trace,
         tty_use_color: options.tty_use_color,
+        debug: options.debug,
+        terse: options.terse,
+        user_output: options.user_output.clone(),
         dump_trace: options.dump_trace.as_ref().map(|cfg| DumpTraceOptions {
             format: map_trace_format(cfg.format.clone()),
             output_path: cfg.output_path.clone(),
         }),
         post_conditions: options.post_conditions.clone(),
         telemetry_endpoint: options.telemetry_endpoint.clone(),
+    }
+}
+
+fn output_config_from(options: &RunOptions) -> OutputConfig {
+    OutputConfig {
+        debug: options.debug,
+        suppress_warnings: options.suppress_warnings,
+        terse: options.terse,
+        user_output: options.user_output.clone(),
+        tool_mode: false,
     }
 }
 
@@ -209,6 +227,9 @@ fn run_options_from_engine(options: &EngineOptions) -> RunOptions {
         suppress_warnings: options.suppress_warnings,
         diff_trace: options.diff_trace,
         tty_use_color: options.tty_use_color,
+        debug: options.debug,
+        terse: options.terse,
+        user_output: options.user_output.clone(),
         dump_trace: options.dump_trace.as_ref().map(|cfg| DumpTraceConfig {
             format: reverse_map_trace_format(cfg.format),
             output_path: cfg.output_path.clone(),
@@ -333,6 +354,21 @@ fn build_resume_command(manifest: &RunManifest, command: &ResumeCommand) -> Resu
     } else {
         !manifest.inputs.options.tty_use_color
     };
+    let debug = if command.output.debug {
+        true
+    } else {
+        manifest.inputs.options.debug
+    };
+    let terse = if command.output.terse {
+        true
+    } else {
+        manifest.inputs.options.terse
+    };
+    let user_file = command
+        .output
+        .user_file
+        .clone()
+        .or_else(|| manifest.inputs.options.user_output.clone());
 
     Ok(RunCommand {
         spec: primary_module,
@@ -356,6 +392,9 @@ fn build_resume_command(manifest: &RunManifest, command: &ResumeCommand) -> Resu
             telemetry: command.output.telemetry,
             otlp_endpoint,
             no_color,
+            debug,
+            terse,
+            user_file,
         },
     })
 }
@@ -442,6 +481,9 @@ mod tests {
                 telemetry: TelemetryMode::Local,
                 otlp_endpoint: Some("https://collector:4317".into()),
                 no_color: false,
+                debug: false,
+                terse: false,
+                user_file: None,
             },
         }
     }
@@ -491,6 +533,7 @@ mod tests {
         let inputs = load_run_inputs(&run_command).map_err(anyhow::Error::new)?;
         let manifest = RunManifest::new(inputs.clone(), vec![inputs.configuration.run_id]);
 
+        let cli_user_file = temp_dir.path().join("cli-user.log");
         let resume_command = ResumeCommand {
             checkpoint: temp_dir.path().join("checkpoint.chk"),
             workers: WorkerCount::Fixed(8),
@@ -500,6 +543,9 @@ mod tests {
                 telemetry: TelemetryMode::Json,
                 otlp_endpoint: Some("https://cli-endpoint:4317".into()),
                 no_color: true,
+                debug: true,
+                terse: true,
+                user_file: Some(cli_user_file.clone()),
             },
         };
 
@@ -512,6 +558,12 @@ mod tests {
             Some("https://cli-endpoint:4317")
         );
         assert!(resume_run_command.output.no_color);
+        assert!(resume_run_command.output.debug);
+        assert!(resume_run_command.output.terse);
+        assert_eq!(
+            resume_run_command.output.user_file.as_ref(),
+            Some(&cli_user_file)
+        );
         assert_eq!(resume_run_command.dump_trace, Some(TraceDumpFormat::Dot));
         assert_eq!(
             resume_run_command.dump_trace_file.as_ref(),

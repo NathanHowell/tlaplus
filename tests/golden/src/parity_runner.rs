@@ -355,11 +355,34 @@ impl HarnessContext {
             args.push(OsString::from(workers.to_string()));
         }
 
+        let mut user_file = None;
+        if let Some(logging) = inputs
+            .legacy_quirks
+            .as_ref()
+            .and_then(|meta| meta.logging.as_ref())
+        {
+            if logging.suppress_warnings {
+                args.push(OsString::from("--suppress-warnings"));
+            }
+            if logging.debug {
+                args.push(OsString::from("--debug"));
+            }
+            if logging.terse {
+                args.push(OsString::from("--terse"));
+            }
+            if let Some(path) = logging.user_file.as_ref() {
+                args.push(OsString::from("--user-file"));
+                args.push(path.clone().into_os_string());
+                user_file = Some(path.clone());
+            }
+        }
+
         let result = run_command(CommandDescriptor {
             binary: self.rust_binary.clone(),
             args,
             working_dir: inputs.working_dir.clone(),
             role: CommandRole::Rust,
+            user_file,
         });
 
         if result.executed() {
@@ -378,11 +401,34 @@ impl HarnessContext {
         }
         args.push(inputs.spec_path.clone().into_os_string());
 
+        let mut user_file = None;
+        if let Some(logging) = inputs
+            .legacy_quirks
+            .as_ref()
+            .and_then(|meta| meta.logging.as_ref())
+        {
+            if logging.suppress_warnings {
+                args.push(OsString::from("-nowarning"));
+            }
+            if logging.debug {
+                args.push(OsString::from("-debug"));
+            }
+            if logging.terse {
+                args.push(OsString::from("-terse"));
+            }
+            if let Some(path) = logging.user_file.as_ref() {
+                args.push(OsString::from("-userFile"));
+                args.push(path.clone().into_os_string());
+                user_file = Some(path.clone());
+            }
+        }
+
         run_command(CommandDescriptor {
             binary: self.config.legacy_launcher.clone(),
             args,
             working_dir: inputs.working_dir.clone(),
             role: CommandRole::Legacy,
+            user_file,
         })
     }
 
@@ -551,6 +597,15 @@ struct LegacyQuirkMetadata {
     cli_notes: Option<String>,
     unicode_identifiers: Vec<String>,
     unicode_strings: Vec<String>,
+    logging: Option<LoggingToggles>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LoggingToggles {
+    suppress_warnings: bool,
+    debug: bool,
+    terse: bool,
+    user_file: Option<PathBuf>,
 }
 
 fn resolve_spec_inputs(spec: &DiscoveredSpec) -> Result<SpecExecutionInputs> {
@@ -633,8 +688,14 @@ fn load_legacy_quirks(dir: &Path) -> Result<Option<LegacyQuirkMetadata>> {
 
     let mut deprecated_flags = Vec::new();
     let mut cli_notes = None;
+    let mut logging = None;
     if let Some(cli) = raw.cli {
-        cli_notes = cli.notes;
+        cli_notes = cli.notes.clone();
+        let suppress_warnings = cli.suppress_warnings;
+        let debug = cli.debug;
+        let terse = cli.terse;
+        let user_file_cfg = cli.user_file.clone();
+
         let mut seen = BTreeSet::new();
         for flag in cli.deprecated_flags {
             let trimmed = flag.trim();
@@ -653,6 +714,23 @@ fn load_legacy_quirks(dir: &Path) -> Result<Option<LegacyQuirkMetadata>> {
                 deprecated_flags.push(trimmed.to_string());
             }
         }
+
+        if suppress_warnings || debug || terse || user_file_cfg.is_some() {
+            let user_file = user_file_cfg.map(|value| {
+                let candidate = PathBuf::from(value);
+                if candidate.is_absolute() {
+                    candidate
+                } else {
+                    dir.join(candidate)
+                }
+            });
+            logging = Some(LoggingToggles {
+                suppress_warnings,
+                debug,
+                terse,
+                user_file,
+            });
+        }
     }
 
     let unicode = raw.unicode.unwrap_or_default();
@@ -668,6 +746,7 @@ fn load_legacy_quirks(dir: &Path) -> Result<Option<LegacyQuirkMetadata>> {
         cli_notes,
         unicode_identifiers,
         unicode_strings,
+        logging,
     }))
 }
 
@@ -709,6 +788,14 @@ struct RawLegacyCli {
     deprecated_flags: Vec<String>,
     #[serde(default)]
     notes: Option<String>,
+    #[serde(default)]
+    suppress_warnings: bool,
+    #[serde(default)]
+    debug: bool,
+    #[serde(default)]
+    terse: bool,
+    #[serde(default)]
+    user_file: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -725,6 +812,7 @@ struct CommandDescriptor {
     args: Vec<OsString>,
     working_dir: PathBuf,
     role: CommandRole,
+    user_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -749,6 +837,8 @@ struct ExecutionResult {
     stdout: String,
     stderr: String,
     error: Option<String>,
+    user_output: Option<String>,
+    user_file_error: Option<String>,
     executed: bool,
 }
 
@@ -776,6 +866,8 @@ fn run_command(descriptor: CommandDescriptor) -> ExecutionResult {
             stdout: String::new(),
             stderr: String::new(),
             error: Some(message),
+            user_output: None,
+            user_file_error: None,
             executed: false,
         };
     }
@@ -790,22 +882,47 @@ fn run_command(descriptor: CommandDescriptor) -> ExecutionResult {
     command.env("TLC_PARITY_ROLE", descriptor.role.env_value());
 
     match command.output() {
-        Ok(output) => ExecutionResult {
-            descriptor,
-            status: output.status.code(),
-            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-            error: None,
-            executed: true,
-        },
+        Ok(output) => {
+            let (user_output, user_file_error) = read_user_output(&descriptor);
+            ExecutionResult {
+                descriptor,
+                status: output.status.code(),
+                stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+                stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+                error: None,
+                user_output,
+                user_file_error,
+                executed: true,
+            }
+        }
         Err(error) => ExecutionResult {
             descriptor,
             status: None,
             stdout: String::new(),
             stderr: String::new(),
             error: Some(error.to_string()),
+            user_output: None,
+            user_file_error: None,
             executed: false,
         },
+    }
+}
+
+fn read_user_output(descriptor: &CommandDescriptor) -> (Option<String>, Option<String>) {
+    let path = match descriptor.user_file.as_ref() {
+        Some(path) => path,
+        None => return (None, None),
+    };
+
+    match fs::read_to_string(path) {
+        Ok(contents) => (Some(contents), None),
+        Err(err) => (
+            None,
+            Some(format!(
+                "failed to read user output '{}': {err}",
+                path.display()
+            )),
+        ),
     }
 }
 
@@ -1049,6 +1166,24 @@ fn determine_status(rust: &ExecutionResult, legacy: &ExecutionResult) -> StatusN
         mismatch_reasons.push("stderr differs".to_string());
     }
 
+    if let Some(error) = &rust.user_file_error {
+        mismatch_reasons.push(format!("rust user output error: {error}"));
+    }
+    if let Some(error) = &legacy.user_file_error {
+        mismatch_reasons.push(format!("legacy user output error: {error}"));
+    }
+
+    match (&rust.user_output, &legacy.user_output) {
+        (Some(rust_output), Some(legacy_output)) => {
+            if rust_output != legacy_output {
+                mismatch_reasons.push("user output differs".to_string());
+            }
+        }
+        (Some(_), None) => mismatch_reasons.push("legacy user output missing".to_string()),
+        (None, Some(_)) => mismatch_reasons.push("rust user output missing".to_string()),
+        (None, None) => {}
+    }
+
     if mismatch_reasons.is_empty() {
         StatusNotes {
             status: ParityStatus::Match,
@@ -1113,6 +1248,17 @@ fn format_execution_block(
     }
     format_multiline(buffer, "Stdout", &result.stdout)?;
     format_multiline(buffer, "Stderr", &result.stderr)?;
+    if let Some(user_file) = result.descriptor.user_file.as_ref() {
+        writeln!(buffer, "User file: {}", user_file.display())?;
+        if let Some(error) = result.user_file_error.as_ref() {
+            writeln!(buffer, "User file error: {error}")?;
+        }
+        if let Some(output) = result.user_output.as_ref() {
+            format_multiline(buffer, "User Output", output)?;
+        } else if result.user_file_error.is_none() {
+            format_multiline(buffer, "User Output", "<empty>")?;
+        }
+    }
     Ok(())
 }
 
@@ -1147,7 +1293,7 @@ fn format_multiline(buffer: &mut String, label: &str, content: &str) -> Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{io::Write, process::Command};
+    use std::{fs, io::Write, process::Command};
     use tempfile::tempdir;
 
     const FINAL_SUMMARY: &str = concat!(
@@ -1232,6 +1378,34 @@ mod tests {
         code.push_str("    }\n");
         code.push_str("    Ok(())\n");
         code.push_str("}\n");
+        code
+    }
+
+    fn warning_sensitive_stub(stdout: &str, warning: &str) -> String {
+        let mut code = metrics_stub_source(stdout);
+        let target = format!("    println!(\"{}\");\n", escape_for_string_literal(stdout));
+        let replacement = format!(
+            "    let args: Vec<String> = std::env::args().collect();\n    let suppress = args.iter().any(|arg| arg == \"--suppress-warnings\" || arg == \"-nowarning\");\n    if !suppress {{\n        println!(\"{}\");\n    }}\n    println!(\"{}\");\n",
+            escape_for_string_literal(warning),
+            escape_for_string_literal(stdout)
+        );
+        if let Some(index) = code.find(&target) {
+            code.replace_range(index..index + target.len(), &replacement);
+        }
+        code
+    }
+
+    fn user_file_stub(stdout: &str, user_content: &str) -> String {
+        let mut code = metrics_stub_source(stdout);
+        let target = format!("    println!(\"{}\");\n", escape_for_string_literal(stdout));
+        let replacement = format!(
+            "    let mut args = std::env::args().skip(1);\n    let mut user_file = None;\n    while let Some(arg) = args.next() {{\n        if arg == \"--user-file\" || arg == \"-userFile\" {{\n            user_file = args.next();\n            break;\n        }}\n    }}\n    if let Some(path) = user_file {{\n        fs::write(&path, \"{}\").expect(\"write user file\");\n    }}\n    println!(\"{}\");\n",
+            escape_for_string_literal(user_content),
+            escape_for_string_literal(stdout)
+        );
+        if let Some(index) = code.find(&target) {
+            code.replace_range(index..index + target.len(), &replacement);
+        }
         code
     }
 
@@ -1412,6 +1586,10 @@ strings = ["UTF_STRING_START", "UTF_STRING_END"]
         assert_eq!(
             quirks.unicode_strings,
             vec!["UTF_STRING_START".to_string(), "UTF_STRING_END".to_string()]
+        );
+        assert!(
+            quirks.logging.is_none(),
+            "logging metadata should be absent when not configured"
         );
     }
 
@@ -1677,6 +1855,149 @@ deprecated_flags = ["tool"]
         assert!(
             note.contains("stdout differs"),
             "expected stdout mismatch note, got: {note}"
+        );
+    }
+
+    #[test]
+    fn suppress_warnings_toggle_applied_to_both_binaries() {
+        let temp = tempdir().expect("temp dir");
+        let specs_root = temp.path().join("specs");
+        let spec_dir = specs_root.join("WarningsSpec");
+        fs::create_dir_all(&spec_dir).unwrap();
+        fs::write(
+            spec_dir.join("WarningsSpec.tla"),
+            "---- MODULE WarningsSpec ----",
+        )
+        .unwrap();
+        fs::write(
+            spec_dir.join("fixture.toml"),
+            r#"
+[cli]
+suppress_warnings = true
+"#,
+        )
+        .unwrap();
+
+        let output_dir = temp.path().join("artifacts");
+        let rust_stub_source = warning_sensitive_stub(FINAL_SUMMARY, "Warning: rust warning");
+        let rust_stub = build_stub_binary(temp.path(), "rust_warning_stub", &rust_stub_source);
+        let legacy_stub_source = warning_sensitive_stub(FINAL_SUMMARY, "Warning: legacy warning");
+        let legacy_stub =
+            build_stub_binary(temp.path(), "legacy_warning_stub", &legacy_stub_source);
+
+        let config = HarnessConfig {
+            legacy_launcher: legacy_stub,
+            specs_root: specs_root.clone(),
+            filter: None,
+            output_dir: output_dir.clone(),
+            rust_binary: rust_stub,
+            workers: None,
+            golden_cache: None,
+        };
+
+        run_with_config(config).expect("parity harness run");
+
+        let summary_path = output_dir.join("summary.json");
+        let summary: SummaryReport =
+            serde_json::from_slice(&fs::read(&summary_path).unwrap()).unwrap();
+        assert_eq!(summary.specs.len(), 1);
+        assert_eq!(summary.specs[0].status, ParityStatus::Match);
+    }
+
+    #[test]
+    fn user_file_outputs_match() {
+        let temp = tempdir().expect("temp dir");
+        let specs_root = temp.path().join("specs");
+        let spec_dir = specs_root.join("UserFileSpec");
+        fs::create_dir_all(&spec_dir).unwrap();
+        fs::write(
+            spec_dir.join("UserFileSpec.tla"),
+            "---- MODULE UserFileSpec ----",
+        )
+        .unwrap();
+        fs::write(
+            spec_dir.join("fixture.toml"),
+            r#"
+[cli]
+user_file = "user.log"
+"#,
+        )
+        .unwrap();
+
+        let output_dir = temp.path().join("artifacts");
+        let rust_stub_source = user_file_stub(FINAL_SUMMARY, "rust user output\n");
+        let rust_stub = build_stub_binary(temp.path(), "rust_user_stub", &rust_stub_source);
+        let legacy_stub_source = user_file_stub(FINAL_SUMMARY, "rust user output\n");
+        let legacy_stub = build_stub_binary(temp.path(), "legacy_user_stub", &legacy_stub_source);
+
+        let config = HarnessConfig {
+            legacy_launcher: legacy_stub,
+            specs_root: specs_root.clone(),
+            filter: None,
+            output_dir: output_dir.clone(),
+            rust_binary: rust_stub,
+            workers: None,
+            golden_cache: None,
+        };
+
+        run_with_config(config).expect("parity harness run");
+
+        let summary_path = output_dir.join("summary.json");
+        let summary: SummaryReport =
+            serde_json::from_slice(&fs::read(&summary_path).unwrap()).unwrap();
+        assert_eq!(summary.specs.len(), 1);
+        assert_eq!(summary.specs[0].status, ParityStatus::Match);
+    }
+
+    #[test]
+    fn user_file_mismatch_detected() {
+        let temp = tempdir().expect("temp dir");
+        let specs_root = temp.path().join("specs");
+        let spec_dir = specs_root.join("UserFileMismatch");
+        fs::create_dir_all(&spec_dir).unwrap();
+        fs::write(
+            spec_dir.join("UserFileMismatch.tla"),
+            "---- MODULE UserFileMismatch ----",
+        )
+        .unwrap();
+        fs::write(
+            spec_dir.join("fixture.toml"),
+            r#"
+[cli]
+user_file = "user.log"
+"#,
+        )
+        .unwrap();
+
+        let output_dir = temp.path().join("artifacts");
+        let rust_stub_source = user_file_stub(FINAL_SUMMARY, "matching output\n");
+        let rust_stub = build_stub_binary(temp.path(), "rust_user_mismatch", &rust_stub_source);
+        let legacy_stub_source = user_file_stub(FINAL_SUMMARY, "legacy different\n");
+        let legacy_stub =
+            build_stub_binary(temp.path(), "legacy_user_mismatch", &legacy_stub_source);
+
+        let config = HarnessConfig {
+            legacy_launcher: legacy_stub,
+            specs_root: specs_root.clone(),
+            filter: None,
+            output_dir: output_dir.clone(),
+            rust_binary: rust_stub,
+            workers: None,
+            golden_cache: None,
+        };
+
+        run_with_config(config).expect("parity harness run");
+
+        let summary_path = output_dir.join("summary.json");
+        let summary: SummaryReport =
+            serde_json::from_slice(&fs::read(&summary_path).unwrap()).unwrap();
+        assert_eq!(summary.specs.len(), 1);
+        let report = &summary.specs[0];
+        assert_eq!(report.status, ParityStatus::Mismatch);
+        let note = report.notes.as_deref().unwrap_or("");
+        assert!(
+            note.contains("user output differs"),
+            "expected user output diff note, got: {note}"
         );
     }
 

@@ -92,7 +92,7 @@ description: "Task list for Native TLC Command Line Tool"
 - [X] T028 [US1] Wire CLI binary main to engine, telemetry, and checkpoint modules in `src/cli/src/main.rs`
 - [X] T084 [US1] Reproduce legacy final run summaries (states/depth banners) in `src/cli/src/output.rs` and assert parity in `tests/golden/src/parity_runner.rs`
 - [X] T085 [US1] Port TLC `MP` warning/error catalog and compare outputs against Java in `tests/golden/src/parity_runner.rs`
-- [ ] T086 [US1] Mirror `-debug`/`-terse`/`-nowarning`/`-userFile` behaviors in `src/cli/src/output.rs` with parity runner validation
+- [X] T086 [US1] Mirror `-debug`/`-terse`/`-nowarning`/`-userFile` behaviors in `src/cli/src/output.rs` with parity runner validation
 - [X] T053 [P] [US1] Emit run-level metrics (runtime, states-per-second, memory) from engine telemetry hooks in `src/engine/src/metrics.rs`
 - [X] T054 [US1] Assert metric presence and formatting in parity and regression harnesses in `tests/golden/src/parity_runner.rs`
 - [X] T080 [US1] Surface checkpoint manifest details and resume instructions in CLI interruption and mismatch messages within `src/cli/src/output.rs`

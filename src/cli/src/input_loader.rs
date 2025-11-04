@@ -43,6 +43,12 @@ pub struct RunOptions {
     pub suppress_warnings: bool,
     pub diff_trace: bool,
     pub tty_use_color: bool,
+    #[serde(default)]
+    pub debug: bool,
+    #[serde(default)]
+    pub terse: bool,
+    #[serde(default)]
+    pub user_output: Option<PathBuf>,
     pub dump_trace: Option<DumpTraceConfig>,
     pub post_conditions: Vec<String>,
     pub telemetry_endpoint: Option<String>,
@@ -135,6 +141,9 @@ pub fn load_run_inputs_with_progress(
         suppress_warnings: command.suppress_warnings,
         diff_trace: command.diff_trace,
         tty_use_color: command.output.tty_color_enabled(),
+        debug: command.output.debug,
+        terse: command.output.terse,
+        user_output: command.output.user_file.clone(),
         dump_trace,
         post_conditions: command.post_conditions.clone(),
         telemetry_endpoint: command.output.otlp_endpoint.clone(),
@@ -353,6 +362,9 @@ mod tests {
                 telemetry: TelemetryMode::Local,
                 otlp_endpoint: None,
                 no_color: false,
+                debug: false,
+                terse: false,
+                user_file: None,
             },
         }
     }

@@ -62,6 +62,18 @@ pub struct OutputOptions {
     /// Disable ANSI colors in TTY progress output (useful for monochrome terminals).
     #[arg(long = "no-color", action = ArgAction::SetTrue)]
     pub no_color: bool,
+
+    /// Enable verbose internal diagnostics (legacy `-debug`).
+    #[arg(long = "debug", action = ArgAction::SetTrue)]
+    pub debug: bool,
+
+    /// Collapse value expansion in `Print` output (legacy `-terse`).
+    #[arg(long = "terse", action = ArgAction::SetTrue)]
+    pub terse: bool,
+
+    /// Redirect `Print`/`PrintT` output to the specified file (legacy `-userFile`).
+    #[arg(long = "user-file", value_hint = ValueHint::FilePath, value_name = "PATH")]
+    pub user_file: Option<PathBuf>,
 }
 
 /// CLI arguments for `tlc run`.
@@ -415,6 +427,9 @@ mod tests {
             telemetry: TelemetryMode::Local,
             otlp_endpoint: None,
             no_color: false,
+            debug: false,
+            terse: false,
+            user_file: None,
         }
     }
 

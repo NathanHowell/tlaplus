@@ -1,12 +1,280 @@
 //! Formatting utilities for TLC CLI diagnostics and legacy-compatible summaries.
 
-use std::{fmt, path::Path, time::Duration};
+use std::{
+    fmt,
+    fs::File,
+    io::{self, Write},
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex, MutexGuard, OnceLock},
+    time::Duration,
+};
 
 use chrono::{DateTime, FixedOffset};
 
 use thiserror::Error;
 use tlc_util::RunStatus;
 use ulid::Ulid;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutputConfig {
+    pub debug: bool,
+    pub suppress_warnings: bool,
+    pub terse: bool,
+    pub user_output: Option<PathBuf>,
+    pub tool_mode: bool,
+}
+
+impl Default for OutputConfig {
+    fn default() -> Self {
+        Self {
+            debug: false,
+            suppress_warnings: false,
+            terse: false,
+            user_output: None,
+            tool_mode: false,
+        }
+    }
+}
+
+pub struct OutputBuilder {
+    config: OutputConfig,
+    stdout: StreamTarget,
+    stderr: StreamTarget,
+}
+
+impl OutputBuilder {
+    pub fn new() -> Self {
+        Self {
+            config: OutputConfig::default(),
+            stdout: StreamTarget::Stdout,
+            stderr: StreamTarget::Stderr,
+        }
+    }
+
+    pub fn config(mut self, config: OutputConfig) -> Self {
+        self.config = config;
+        self
+    }
+
+    pub fn with_stdout(mut self, target: StreamTarget) -> Self {
+        self.stdout = target;
+        self
+    }
+
+    pub fn with_stderr(mut self, target: StreamTarget) -> Self {
+        self.stderr = target;
+        self
+    }
+
+    pub fn install(self) -> Result<(), OutputError> {
+        install_internal(self.config, self.stdout, self.stderr)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum StreamTarget {
+    Stdout,
+    Stderr,
+    Buffer(Arc<Mutex<Vec<u8>>>),
+}
+
+impl StreamTarget {
+    pub fn buffer() -> (Self, Arc<Mutex<Vec<u8>>>) {
+        let buffer = Arc::new(Mutex::new(Vec::new()));
+        (StreamTarget::Buffer(Arc::clone(&buffer)), buffer)
+    }
+
+    fn write(&self, message: &str) -> io::Result<()> {
+        self.write_bytes(message.as_bytes())
+    }
+
+    fn write_line(&self, message: &str) -> io::Result<()> {
+        self.write_bytes(message.as_bytes())?;
+        self.write_bytes(b"\n")?;
+        self.flush()
+    }
+
+    fn write_bytes(&self, bytes: &[u8]) -> io::Result<()> {
+        match self {
+            StreamTarget::Stdout => {
+                let mut stdout = io::stdout();
+                stdout.write_all(bytes)
+            }
+            StreamTarget::Stderr => {
+                let mut stderr = io::stderr();
+                stderr.write_all(bytes)
+            }
+            StreamTarget::Buffer(buffer) => {
+                let mut guard = buffer.lock().expect("buffer poisoned");
+                guard.extend_from_slice(bytes);
+                Ok(())
+            }
+        }
+    }
+
+    fn flush(&self) -> io::Result<()> {
+        match self {
+            StreamTarget::Stdout => io::stdout().flush(),
+            StreamTarget::Stderr => io::stderr().flush(),
+            StreamTarget::Buffer(_) => Ok(()),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct UserSink {
+    path: PathBuf,
+    file: File,
+}
+
+impl UserSink {
+    fn write(&mut self, message: &str, append_newline: bool) -> io::Result<()> {
+        self.file.write_all(message.as_bytes())?;
+        if append_newline {
+            self.file.write_all(b"\n")?;
+        }
+        self.file.flush()
+    }
+}
+
+#[derive(Debug)]
+struct OutputState {
+    config: OutputConfig,
+    stdout: StreamTarget,
+    stderr: StreamTarget,
+    user_sink: Option<UserSink>,
+}
+
+impl Default for OutputState {
+    fn default() -> Self {
+        Self {
+            config: OutputConfig::default(),
+            stdout: StreamTarget::Stdout,
+            stderr: StreamTarget::Stderr,
+            user_sink: None,
+        }
+    }
+}
+
+static OUTPUT_STATE: OnceLock<Mutex<OutputState>> = OnceLock::new();
+
+fn shared_state() -> &'static Mutex<OutputState> {
+    OUTPUT_STATE.get_or_init(|| Mutex::new(OutputState::default()))
+}
+
+fn state_guard() -> MutexGuard<'static, OutputState> {
+    match shared_state().lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum OutputError {
+    #[error("failed to open user output file at '{path}': {source}")]
+    UserFileOpen {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+    #[error("failed to write output: {0}")]
+    Io(#[from] io::Error),
+}
+
+pub fn install(config: OutputConfig) -> Result<(), OutputError> {
+    install_internal(config, StreamTarget::Stdout, StreamTarget::Stderr)
+}
+
+pub fn install_with_streams(
+    config: OutputConfig,
+    stdout: StreamTarget,
+    stderr: StreamTarget,
+) -> Result<(), OutputError> {
+    install_internal(config, stdout, stderr)
+}
+
+fn install_internal(
+    config: OutputConfig,
+    stdout: StreamTarget,
+    stderr: StreamTarget,
+) -> Result<(), OutputError> {
+    let mut guard = state_guard();
+    guard.stdout = stdout;
+    guard.stderr = stderr;
+    guard.config = config.clone();
+    guard.user_sink = match config.user_output {
+        Some(ref path) => {
+            let file = File::create(path).map_err(|source| OutputError::UserFileOpen {
+                path: path.clone(),
+                source,
+            })?;
+            Some(UserSink {
+                path: path.clone(),
+                file,
+            })
+        }
+        None => None,
+    };
+    Ok(())
+}
+
+pub fn emit(message: &str) -> Result<(), OutputError> {
+    let guard = state_guard();
+    guard.stdout.write(message)?;
+    Ok(())
+}
+
+pub fn emit_warning(message: &str) -> Result<(), OutputError> {
+    let guard = state_guard();
+    if guard.config.suppress_warnings {
+        return Ok(());
+    }
+    guard.stdout.write(message)?;
+    Ok(())
+}
+
+pub fn emit_error(message: &str) -> Result<(), OutputError> {
+    let guard = state_guard();
+    guard.stderr.write(message)?;
+    Ok(())
+}
+
+pub fn emit_debug(message: &str) -> Result<(), OutputError> {
+    let guard = state_guard();
+    if !guard.config.debug {
+        return Ok(());
+    }
+    guard.stdout.write(message)?;
+    Ok(())
+}
+
+pub fn emit_user(message: &str) -> Result<(), OutputError> {
+    write_user(message, false)
+}
+
+pub fn emit_user_line(message: &str) -> Result<(), OutputError> {
+    write_user(message, true)
+}
+
+fn write_user(message: &str, append_newline: bool) -> Result<(), OutputError> {
+    let mut guard = state_guard();
+    if let Some(sink) = guard.user_sink.as_mut() {
+        sink.write(message, append_newline)?;
+    } else if append_newline {
+        guard.stdout.write_line(message)?;
+    } else {
+        guard.stdout.write(message)?;
+    }
+    Ok(())
+}
+
+pub fn expand_values() -> bool {
+    !state_guard().config.terse
+}
+
+pub fn debug_enabled() -> bool {
+    state_guard().config.debug
+}
 
 const TOOL_DELIMITER: &str = "@!@!@";
 const TOOL_START: &str = "STARTMSG ";
@@ -682,8 +950,99 @@ impl NumberFormatter {
 mod tests {
     use super::*;
     use chrono::DateTime;
-    use std::time::Duration;
+    use std::{
+        sync::{Arc, Mutex},
+        time::Duration,
+    };
+    use tempfile::tempdir;
     use tlc_util::RunStatus;
+
+    fn buffer_contents(buffer: &Arc<Mutex<Vec<u8>>>) -> String {
+        let guard = buffer.lock().expect("buffer lock");
+        String::from_utf8_lossy(&guard[..]).to_string()
+    }
+
+    #[test]
+    fn suppresses_warning_output_when_requested() {
+        let (stdout_target, stdout_buffer) = StreamTarget::buffer();
+        let (stderr_target, _) = StreamTarget::buffer();
+        OutputBuilder::new()
+            .config(OutputConfig {
+                suppress_warnings: true,
+                ..OutputConfig::default()
+            })
+            .with_stdout(stdout_target)
+            .with_stderr(stderr_target)
+            .install()
+            .expect("install suppressed warnings");
+        emit_warning("Warning: something unexpected")
+            .expect("warning suppression should not error");
+        assert_eq!(buffer_contents(&stdout_buffer), "");
+    }
+
+    #[test]
+    fn debug_output_requires_flag() {
+        let (stdout_target, stdout_buffer) = StreamTarget::buffer();
+        let (stderr_target, _) = StreamTarget::buffer();
+        OutputBuilder::new()
+            .with_stdout(stdout_target)
+            .with_stderr(stderr_target)
+            .install()
+            .expect("install default output");
+        emit_debug("debug disabled").expect("emit debug without flag");
+        assert_eq!(buffer_contents(&stdout_buffer), "");
+
+        let (stdout_target, stdout_buffer) = StreamTarget::buffer();
+        let (stderr_target, _) = StreamTarget::buffer();
+        OutputBuilder::new()
+            .config(OutputConfig {
+                debug: true,
+                ..OutputConfig::default()
+            })
+            .with_stdout(stdout_target)
+            .with_stderr(stderr_target)
+            .install()
+            .expect("install debug output");
+        emit_debug("debug enabled").expect("emit debug with flag");
+        assert_eq!(buffer_contents(&stdout_buffer), "debug enabled");
+    }
+
+    #[test]
+    fn user_output_redirects_to_file() {
+        let temp_dir = tempdir().expect("temp dir");
+        let user_log = temp_dir.path().join("user.log");
+        OutputBuilder::new()
+            .config(OutputConfig {
+                user_output: Some(user_log.clone()),
+                ..OutputConfig::default()
+            })
+            .install()
+            .expect("install user output");
+        emit_user_line("hello user").expect("write user output");
+        let contents = std::fs::read_to_string(&user_log).expect("read user log");
+        assert_eq!(contents, "hello user\n");
+    }
+
+    #[test]
+    fn expand_values_follows_terse_flag() {
+        OutputBuilder::new()
+            .config(OutputConfig::default())
+            .install()
+            .expect("install default config");
+        assert!(expand_values(), "default output should expand values");
+
+        OutputBuilder::new()
+            .config(OutputConfig {
+                terse: true,
+                ..OutputConfig::default()
+            })
+            .install()
+            .expect("install terse config");
+        assert!(
+            !expand_values(),
+            "terse config should report value expansion disabled"
+        );
+    }
 
     #[test]
     fn formats_success_banner_with_two_probabilities() {
