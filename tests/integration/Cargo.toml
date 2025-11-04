@@ -19,6 +19,7 @@ tlc-telemetry = { path = "../../src/telemetry" }
 tlc-util = { path = "../../src/util" }
 tlc-checkpoint = { path = "../../src/checkpoint" }
 tlc-progress = { path = "../../src/progress" }
+tlc-engine = { path = "../../src/engine" }
 
 [[test]]
 name = "telemetry_defaults"
@@ -39,3 +40,7 @@ path = "progress_ndjson.rs"
 [[test]]
 name = "progress_tty"
 path = "progress_tty.rs"
+
+[[test]]
+name = "progress_validation"
+path = "progress_validation.rs"

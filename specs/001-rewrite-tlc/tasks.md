@@ -118,7 +118,7 @@ description: "Task list for Native TLC Command Line Tool"
 - [X] T033 [US2] Wire CLI `--progress` flag resolution to renderer selection in `src/cli/src/commands.rs`
 - [X] T034 [US2] Document progress modes, NDJSON contract, and Toolbox considerations in `docs/migration/tlc-progress.md`
 - [X] T035 [US2] Implement `--no-color` flag handling and validation in `src/cli/src/commands.rs` and `tests/integration/progress_tty.rs`
-- [ ] T055 [US2] Build progress validation harness measuring refresh cadence and coverage accuracy in `tests/integration/progress_validation.rs`
+- [X] T055 [US2] Build progress validation harness measuring refresh cadence and coverage accuracy in `tests/integration/progress_validation.rs`
 - [ ] T056 [US2] Enforce progress accuracy thresholds in CI via parity harness hooks in `tests/golden/src/parity_runner.rs`
 
 **Checkpoint**: Visual and non-TTY progress experiences complete.
