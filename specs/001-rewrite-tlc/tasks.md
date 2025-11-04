@@ -135,7 +135,7 @@ description: "Task list for Native TLC Command Line Tool"
 - [X] T036 [US3] Add multi-core scaling integration scenario covering throughput deltas in `tests/integration/engine_scaling.rs`
 - [X] T037 [P] [US3] Add benchmarking harness that records scaling metrics in `benches/engine_scaling.rs`
 - [X] T069 [US3] Add skewed workload integration test enforcing ≥70% aggregate worker utilization in `tests/integration/worker_skew.rs`
-- [ ] T070 [US3] Enforce ≥20% throughput improvement and ≤5% peak-memory ceiling via benchmark gate in `benches/engine_scaling.rs`
+- [X] T070 [US3] Enforce ≥20% throughput improvement and ≤5% peak-memory ceiling via benchmark gate in `benches/engine_scaling.rs`
 
 ### Implementation Tasks
 
