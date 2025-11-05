@@ -145,7 +145,7 @@ description: "Task list for Native TLC Command Line Tool"
 - [X] T041 [US3] Wire CLI worker/memory flags and defaults into command parsing in `src/cli/src/commands.rs`
 - [X] T042 [P] [US3] Emit worker utilization telemetry with configurable 70% alert thresholds in `src/telemetry/src/workers.rs`
 - [X] T057 [US3] Document scheduler extension seams and handoff contracts in `docs/migration/tlc-scheduler-extension.md`
-- [ ] T058 [P] [US3] Add integration tests that lock extension seam stability in `tests/integration/scheduler_extension.rs`
+- [X] T058 [P] [US3] Add integration tests that lock extension seam stability in `tests/integration/scheduler_extension.rs`
 
 **Checkpoint**: Multi-core execution tuned and benchmarked.
 

@@ -53,3 +53,7 @@ path = "engine_scaling.rs"
 [[test]]
 name = "worker_skew"
 path = "worker_skew.rs"
+
+[[test]]
+name = "scheduler_extension"
+path = "scheduler_extension.rs"
