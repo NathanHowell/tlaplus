@@ -1,8 +1,10 @@
 //! Shared utilities for the Rust-native TLC workspace.
+pub mod config;
 pub mod fingerprint;
 pub mod model;
 pub mod parser;
 
+pub use config::{parse_model_config, parse_model_config_str, ConfigError, ModelConfig};
 pub use fingerprint::{FingerprintBuilder, FingerprintError, StateFingerprint};
 pub use model::{
     Blake3Digest, ExplorationRun, ProgressMode, RunConfiguration, RunStatus, SpecificationPackage,

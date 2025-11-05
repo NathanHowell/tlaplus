@@ -6,10 +6,12 @@ use std::{
     collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
+    process,
     time::Duration,
 };
 
 use anyhow::{anyhow, Context, Result};
+use chrono::{FixedOffset, Utc};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::EnvFilter;
@@ -20,14 +22,20 @@ use commands::{
     TelemetryMode, TraceDumpFormat,
 };
 use input_loader::{
-    load_run_inputs, load_run_inputs_with_progress, DumpTraceConfig, RunInputs, RunOptions,
+    load_run_inputs, load_run_inputs_with_progress, DumpTraceConfig, ParsedModule, RunInputs,
+    RunOptions,
 };
-use output::OutputConfig;
+use output::{FingerprintEstimates, Formatter, OutputConfig, RunSummary};
 use tlc_checkpoint::{CheckpointStore, StoreOptions};
 use tlc_engine::{
-    prepare_resume, prepare_run, DumpTraceOptions, EngineOptions, ResumeRequest, TraceExportFormat,
+    prepare_resume, prepare_run, run_exploration, DumpTraceOptions, EngineOptions,
+    ExplorationSummary, ModelSemantics, ResumeRequest, RunOutcome, SemanticInputs,
+    TraceExportFormat, TraversalStrategy,
 };
-use tlc_util::{RunConfiguration, TelemetryMode as UtilTelemetryMode};
+use tlc_util::{
+    parse_model_config, ModelConfig, RunConfiguration, RunStatus,
+    TelemetryMode as UtilTelemetryMode,
+};
 
 const RUN_MANIFEST_VERSION: u32 = 1;
 const MANIFEST_EXTENSION: &str = "manifest.json";
@@ -93,7 +101,26 @@ fn execute_run(command: RunCommand) -> Result<()> {
         "prepared TLC run context"
     );
 
-    Ok(())
+    let model_config =
+        parse_model_config(&inputs.specification.config_path).map_err(anyhow::Error::new)?;
+    let semantics = build_semantics(&inputs.parsed_modules, &model_config)?;
+    let outcome = run_exploration(&run_context, semantics, TraversalStrategy::BreadthFirst)
+        .map_err(anyhow::Error::new)?;
+
+    match outcome {
+        RunOutcome::Completed { summary } => {
+            emit_run_summary(&summary, RunStatus::Completed)?;
+            Ok(())
+        }
+        RunOutcome::InvariantViolated { violation, summary } => {
+            println!(
+                "Invariant '{}' violated at depth {}.",
+                violation.name, violation.depth
+            );
+            emit_run_summary(&summary, RunStatus::Failed)?;
+            process::exit(2);
+        }
+    }
 }
 
 fn execute_resume(command: ResumeCommand) -> Result<()> {
@@ -256,6 +283,88 @@ fn reverse_map_trace_format(format: TraceExportFormat) -> TraceDumpFormat {
         TraceExportFormat::Action => TraceDumpFormat::Action,
         TraceExportFormat::Dot => TraceDumpFormat::Dot,
         TraceExportFormat::Tla => TraceDumpFormat::Tla,
+    }
+}
+
+fn build_semantics(
+    parsed_modules: &[ParsedModule],
+    config: &ModelConfig,
+) -> Result<ModelSemantics> {
+    let module_asts: Vec<_> = parsed_modules
+        .iter()
+        .map(|parsed| parsed.module.clone())
+        .collect();
+
+    let init_operators = if config.init_operators.is_empty() {
+        vec!["Init".to_string()]
+    } else {
+        config.init_operators.clone()
+    };
+
+    let next_operator = config
+        .next_operator
+        .clone()
+        .unwrap_or_else(|| "Next".to_string());
+
+    let mut inputs = SemanticInputs::new(&module_asts).with_init_operators(&init_operators);
+    inputs = inputs.with_next_operator(next_operator);
+    if !config.invariants.is_empty() {
+        inputs = inputs.with_invariant_operators(&config.invariants);
+    }
+
+    ModelSemantics::new(inputs).map_err(anyhow::Error::new)
+}
+
+fn emit_run_summary(summary: &ExplorationSummary, status: RunStatus) -> Result<()> {
+    let queue_len = summary.queue_stats.len() as u128;
+    let fingerprint = if status == RunStatus::Completed {
+        Some(compute_fingerprint_estimates(summary))
+    } else {
+        None
+    };
+
+    let finished_at = Utc::now().with_timezone(&FixedOffset::east_opt(0).expect("valid offset"));
+
+    let formatter = Formatter::new(false);
+    let lines = formatter.format_summary(&RunSummary::new(
+        status,
+        summary.metrics.states_explored(),
+        summary.distinct_states,
+        Some(queue_len),
+        summary.max_depth,
+        fingerprint,
+        summary.metrics.runtime(),
+        finished_at,
+    ))?;
+
+    for line in lines {
+        println!("{line}");
+    }
+
+    Ok(())
+}
+
+fn compute_fingerprint_estimates(summary: &ExplorationSummary) -> FingerprintEstimates {
+    let probability = collision_probability(summary.distinct_states);
+    FingerprintEstimates::new(format_probability(probability), None)
+}
+
+fn collision_probability(distinct_states: u128) -> f64 {
+    if distinct_states <= 1 {
+        return 0.0;
+    }
+
+    let states = distinct_states as f64;
+    let numerator = states * (states - 1.0);
+    let denominator = 2.0 * 2_f64.powi(128);
+    (numerator / denominator).min(1.0)
+}
+
+fn format_probability(probability: f64) -> String {
+    if probability <= f64::EPSILON {
+        "0".to_string()
+    } else {
+        format!("{probability:.3e}")
     }
 }
 
@@ -572,6 +681,34 @@ mod tests {
             run_command.dump_trace_file.as_ref()
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn build_semantics_uses_config_defaults() -> Result<()> {
+        let module = tlc_util::parse_module(
+            r#"
+---- MODULE Main ----
+VARIABLE x
+
+Init == x = 0
+
+Next == x' = x
+
+Inv == x = 0
+
+====
+"#,
+            tlc_util::ParserOptions::default(),
+        )
+        .map_err(anyhow::Error::new)?;
+
+        let parsed = ParsedModule {
+            path: PathBuf::from("Main.tla"),
+            module,
+        };
+        let semantics = build_semantics(&[parsed], &ModelConfig::defaults())?;
+        assert_eq!(semantics.initial_states().len(), 1);
         Ok(())
     }
 }

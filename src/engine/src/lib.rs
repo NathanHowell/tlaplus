@@ -207,6 +207,10 @@ pub enum EngineError {
     InvalidPostCondition(String),
     #[error("engine invariant violated: {0}")]
     InvariantViolation(String),
+    #[error("failed to build worker scheduler: {0}")]
+    Scheduler(#[from] SchedulerError),
+    #[error("exploration failed: {0}")]
+    Exploration(ExplorationError),
 }
 
 /// Result alias for engine operations.
@@ -410,6 +414,52 @@ pub fn bootstrap_engine() -> AnyhowResult<()> {
     Ok(())
 }
 
+/// Outcome of executing the exploration engine.
+#[derive(Debug, Clone)]
+pub enum RunOutcome {
+    Completed {
+        summary: ExplorationSummary,
+    },
+    InvariantViolated {
+        violation: InvariantViolation,
+        summary: ExplorationSummary,
+    },
+}
+
+impl RunOutcome {
+    pub fn summary(&self) -> &ExplorationSummary {
+        match self {
+            RunOutcome::Completed { summary } | RunOutcome::InvariantViolated { summary, .. } => {
+                summary
+            }
+        }
+    }
+}
+
+/// Execute the exploration loop for a prepared run context.
+pub fn run_exploration(
+    context: &RunContext,
+    semantics: ModelSemantics,
+    strategy: TraversalStrategy,
+) -> Result<RunOutcome> {
+    let worker_threads = context.worker_count();
+    let scheduler = WorkerScheduler::with_name_prefix(worker_threads, "tlc-worker")
+        .map_err(EngineError::from)?;
+
+    let queue_capacity = context.engine_sizing().queue_capacity();
+    let mut explorer = Explorer::new(semantics, scheduler, queue_capacity, strategy)
+        .map_err(EngineError::Exploration)?;
+
+    let recorder = RunMetricsRecorder::start(context.configuration().run_id);
+    match explorer.explore(recorder) {
+        Ok(summary) => Ok(RunOutcome::Completed { summary }),
+        Err(ExplorationError::InvariantViolated { violation, summary }) => {
+            Ok(RunOutcome::InvariantViolated { violation, summary })
+        }
+        Err(error) => Err(EngineError::Exploration(error)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -540,5 +590,95 @@ mod tests {
             error,
             EngineError::InvalidPostCondition(value) if value == "InvalidFormat"
         ));
+    }
+
+    fn parse_modules(source: &str) -> Vec<tlc_util::Module> {
+        vec![
+            tlc_util::parse_module(source, tlc_util::ParserOptions::default())
+                .expect("module parses"),
+        ]
+    }
+
+    #[test]
+    fn run_exploration_completes_without_violation() {
+        let temp_dir = tempdir().expect("tempdir");
+        let specification = build_specification(temp_dir.path());
+        let configuration = build_configuration(TelemetryMode::Local);
+        let options = base_options(temp_dir.path());
+        let context = prepare_run(specification, configuration, options).expect("prepare run");
+
+        let modules = parse_modules(
+            r#"
+---- MODULE Main ----
+VARIABLE x
+
+Init == x = 0
+
+Next == x' = x
+
+Inv == x = 0
+
+====
+"#,
+        );
+
+        let inputs = SemanticInputs::new(&modules)
+            .with_init_operators(&["Init"])
+            .with_next_operator("Next")
+            .with_invariant_operators(&["Inv"]);
+        let semantics = ModelSemantics::new(inputs).expect("semantics");
+
+        let outcome =
+            run_exploration(&context, semantics, TraversalStrategy::BreadthFirst).expect("run");
+        match outcome {
+            RunOutcome::Completed { summary } => {
+                assert_eq!(summary.metrics.states_explored(), 1);
+                assert_eq!(summary.distinct_states, 1);
+                assert_eq!(summary.max_depth, 0);
+            }
+            other => panic!("unexpected outcome: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn run_exploration_surfaces_invariant_violation() {
+        let temp_dir = tempdir().expect("tempdir");
+        let specification = build_specification(temp_dir.path());
+        let configuration = build_configuration(TelemetryMode::Local);
+        let options = base_options(temp_dir.path());
+        let context = prepare_run(specification, configuration, options).expect("prepare run");
+
+        let modules = parse_modules(
+            r#"
+---- MODULE Main ----
+VARIABLE x
+
+Init == x = 0
+
+Next == x' = x + 1
+
+Inv == x = 1
+
+====
+"#,
+        );
+
+        let inputs = SemanticInputs::new(&modules)
+            .with_init_operators(&["Init"])
+            .with_next_operator("Next")
+            .with_invariant_operators(&["Inv"]);
+        let semantics = ModelSemantics::new(inputs).expect("semantics");
+
+        let outcome =
+            run_exploration(&context, semantics, TraversalStrategy::BreadthFirst).expect("run");
+        match outcome {
+            RunOutcome::InvariantViolated { violation, summary } => {
+                assert_eq!(violation.name, "Inv");
+                assert_eq!(summary.metrics.states_explored(), 1);
+                assert_eq!(summary.distinct_states, 1);
+                assert_eq!(summary.max_depth, 0);
+            }
+            other => panic!("unexpected outcome: {:?}", other),
+        }
     }
 }
