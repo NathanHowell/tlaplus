@@ -21,6 +21,7 @@ mod metrics;
 mod progress;
 mod resume;
 mod scheduler;
+mod semantics;
 mod work_queue;
 
 pub use config::{EngineSizing, MemoryGuard};
@@ -28,6 +29,9 @@ pub use metrics::{RunMetrics, RunMetricsRecorder};
 pub use progress::{ProgressEmitter, ProgressSnapshot};
 pub use resume::{prepare_resume, ResumeContext, ResumeError, ResumeLineage, ResumeRequest};
 pub use scheduler::{Result as SchedulerResult, SchedulerError, WorkerScheduler};
+pub use semantics::{
+    Invariant, ModelSemantics, SemanticError, SemanticInputs, State, Value, ValueKind,
+};
 pub use work_queue::{QueueCapacity, QueueStats, WorkQueue};
 
 /// Slice of the frontier assigned to a single worker.

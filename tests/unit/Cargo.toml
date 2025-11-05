@@ -19,3 +19,7 @@ path = "fingerprint_determinism.rs"
 [[test]]
 name = "engine_prop"
 path = "engine_prop.rs"
+
+[[test]]
+name = "semantics"
+path = "semantics.rs"
