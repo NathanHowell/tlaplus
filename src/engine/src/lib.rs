@@ -17,6 +17,7 @@ use tlc_util::{
 };
 
 mod config;
+mod explorer;
 mod metrics;
 mod progress;
 mod resume;
@@ -25,6 +26,9 @@ mod semantics;
 mod work_queue;
 
 pub use config::{EngineSizing, MemoryGuard};
+pub use explorer::{
+    ExplorationError, ExplorationSummary, Explorer, InvariantViolation, TraversalStrategy,
+};
 pub use metrics::{RunMetrics, RunMetricsRecorder};
 pub use progress::{ProgressEmitter, ProgressSnapshot};
 pub use resume::{prepare_resume, ResumeContext, ResumeError, ResumeLineage, ResumeRequest};

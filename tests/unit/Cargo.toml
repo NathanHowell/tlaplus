@@ -23,3 +23,7 @@ path = "engine_prop.rs"
 [[test]]
 name = "semantics"
 path = "semantics.rs"
+
+[[test]]
+name = "explorer"
+path = "explorer.rs"
