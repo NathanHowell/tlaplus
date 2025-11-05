@@ -12,8 +12,9 @@ use blake3::Hasher;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tlc_util::{
-    model::PathKind, Blake3Digest, ProgressMode as UtilProgressMode, RunConfiguration,
-    SpecificationPackage, TelemetryMode as UtilTelemetryMode, ValidationError,
+    model::PathKind, parse_module, Blake3Digest, Module as TlaModule, ParserOptions,
+    ProgressMode as UtilProgressMode, RunConfiguration, SpecificationPackage,
+    TelemetryMode as UtilTelemetryMode, ValidationError,
 };
 use ulid::Ulid;
 use uuid::Uuid;
@@ -29,6 +30,8 @@ pub struct RunInputs {
     pub specification: SpecificationPackage,
     pub configuration: RunConfiguration,
     pub options: RunOptions,
+    #[serde(skip)]
+    pub parsed_modules: Vec<ParsedModule>,
 }
 
 /// Additional runtime options that accompany [`RunConfiguration`].
@@ -61,6 +64,13 @@ pub struct DumpTraceConfig {
     pub output_path: PathBuf,
 }
 
+/// Parsed TLA+ module paired with its origin path.
+#[derive(Debug, Clone)]
+pub struct ParsedModule {
+    pub path: PathBuf,
+    pub module: TlaModule,
+}
+
 /// Errors surfaced while preparing run inputs.
 #[derive(Debug, Error)]
 pub enum InputError {
@@ -77,6 +87,13 @@ pub enum InputError {
         path: PathBuf,
         #[source]
         source: std::io::Error,
+    },
+    #[error("failed to parse module '{path}' at line {line}, column {column}: {message}")]
+    ModuleParse {
+        path: PathBuf,
+        line: usize,
+        column: usize,
+        message: String,
     },
     #[error("failed to read configuration '{path}': {source}")]
     ConfigRead {
@@ -108,7 +125,8 @@ pub fn load_run_inputs_with_progress(
 
     let parameters = collect_parameters(&command.parameters);
     let modules = vec![spec_path.clone()];
-    let package_hash = compute_spec_hash(&modules, &config_path, &parameters)?;
+    let loaded_modules = load_and_parse_modules(&modules)?;
+    let package_hash = compute_spec_hash(&loaded_modules, &config_path, &parameters)?;
     let specification = SpecificationPackage::new(
         Uuid::new_v4(),
         modules,
@@ -116,6 +134,13 @@ pub fn load_run_inputs_with_progress(
         parameters,
         package_hash,
     )?;
+    let parsed_modules = loaded_modules
+        .into_iter()
+        .map(|module| ParsedModule {
+            path: module.path,
+            module: module.ast,
+        })
+        .collect();
 
     let workers = resolve_workers(command.workers)?;
     let memory_limit = command.memory_limit.map(|MemoryLimit(value)| value);
@@ -153,6 +178,7 @@ pub fn load_run_inputs_with_progress(
         specification,
         configuration,
         options,
+        parsed_modules,
     })
 }
 
@@ -206,7 +232,7 @@ fn collect_parameters(overrides: &[ParameterOverride]) -> BTreeMap<String, Strin
 }
 
 fn compute_spec_hash(
-    modules: &[PathBuf],
+    modules: &[LoadedModule],
     config_path: &Path,
     parameters: &BTreeMap<String, String>,
 ) -> Result<Blake3Digest> {
@@ -219,13 +245,11 @@ fn compute_spec_hash(
     hasher.update(&module_count.to_le_bytes());
 
     for module in modules {
-        let content = fs::read(module).map_err(|source| InputError::ModuleRead {
-            path: module.clone(),
-            source,
-        })?;
-        update_with_length(&mut hasher, &content).map_err(|length| InputError::LengthOverflow {
-            path: module.clone(),
-            length,
+        update_with_length(&mut hasher, module.source.as_bytes()).map_err(|length| {
+            InputError::LengthOverflow {
+                path: module.path.clone(),
+                length,
+            }
         })?;
     }
 
@@ -264,6 +288,50 @@ fn update_with_length(hasher: &mut Hasher, data: &[u8]) -> std::result::Result<(
     hasher.update(&as_u64.to_le_bytes());
     hasher.update(data);
     Ok(())
+}
+
+fn load_and_parse_modules(paths: &[PathBuf]) -> Result<Vec<LoadedModule>> {
+    let mut modules = Vec::with_capacity(paths.len());
+    for path in paths {
+        let source = fs::read_to_string(path).map_err(|source| InputError::ModuleRead {
+            path: path.clone(),
+            source,
+        })?;
+        let module = parse_module(&source, ParserOptions::default())
+            .map_err(|error| map_parse_error(path, &source, error))?;
+        modules.push(LoadedModule {
+            path: path.clone(),
+            source,
+            ast: module,
+        });
+    }
+    Ok(modules)
+}
+
+fn map_parse_error(path: &Path, source: &str, error: tlc_util::ParseError) -> InputError {
+    let (line, column) = span_to_line_column(source, error.span);
+    InputError::ModuleParse {
+        path: path.to_path_buf(),
+        line,
+        column,
+        message: error.to_string(),
+    }
+}
+
+fn span_to_line_column(source: &str, span: tlc_util::Span) -> (usize, usize) {
+    let mut line = 1usize;
+    let mut last_line_start = 0usize;
+    for (idx, ch) in source.char_indices() {
+        if idx >= span.start {
+            break;
+        }
+        if ch == '\n' {
+            line += 1;
+            last_line_start = idx + ch.len_utf8();
+        }
+    }
+    let column = span.start.saturating_sub(last_line_start) + 1;
+    (line, column)
 }
 
 fn resolve_workers(count: WorkerCount) -> Result<NonZeroU16> {
@@ -379,13 +447,19 @@ mod tests {
         let temp_dir = tempdir().expect("tempdir");
         let spec_path = temp_dir.path().join("Main.tla");
         let config_path = temp_dir.path().join("MC.cfg");
-        write_file(&spec_path, "---- MODULE Main ----\\n====");
+        write_file(&spec_path, "---- MODULE Main ----\n====");
         write_file(&config_path, "CONSTANTS Foo = 1");
 
         let command = build_command(temp_dir.path());
         // `build_command` stored relative config; we already wrote file in same dir.
 
         let inputs = load_run_inputs(&command).expect("load inputs");
+        assert_eq!(inputs.parsed_modules.len(), 1);
+        assert_eq!(
+            inputs.parsed_modules[0].path,
+            spec_path.canonicalize().unwrap()
+        );
+        assert_eq!(inputs.parsed_modules[0].module.name.name, "Main");
         assert_eq!(inputs.configuration.workers.get(), 4);
         assert_eq!(
             inputs.configuration.memory_limit_bytes,
@@ -421,7 +495,7 @@ mod tests {
         let temp_dir = tempdir().expect("tempdir");
         let spec_path = temp_dir.path().join("Main.tla");
         let config_path = temp_dir.path().join("MC.cfg");
-        write_file(&spec_path, "---- MODULE Main ----\\n====");
+        write_file(&spec_path, "---- MODULE Main ----\n====");
         write_file(&config_path, "CONSTANTS Foo = 1");
 
         let mut command = build_command(temp_dir.path());
@@ -430,4 +504,37 @@ mod tests {
         let error = load_run_inputs(&command).expect_err("expected failure");
         assert!(matches!(error, InputError::MissingDumpTraceFile));
     }
+
+    #[test]
+    fn parsing_error_surfaces_with_context() {
+        let temp_dir = tempdir().expect("tempdir");
+        let spec_path = temp_dir.path().join("Main.tla");
+        let config_path = temp_dir.path().join("MC.cfg");
+        write_file(&spec_path, "---- MODULE Main ----\nVARIABLES x\n");
+        write_file(&config_path, "CONSTANTS Foo = 1");
+
+        let command = build_command(temp_dir.path());
+        let error = load_run_inputs(&command).expect_err("expected parsing failure");
+        match error {
+            InputError::ModuleParse {
+                path,
+                line,
+                column,
+                message,
+            } => {
+                assert_eq!(path, spec_path.canonicalize().unwrap());
+                assert_eq!(line, 1);
+                assert_eq!(column, 1);
+                assert!(message.contains("unterminated module"));
+            }
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct LoadedModule {
+    path: PathBuf,
+    source: String,
+    ast: TlaModule,
 }

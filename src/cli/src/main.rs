@@ -80,6 +80,7 @@ fn execute_run(command: RunCommand) -> Result<()> {
         specification,
         configuration: configuration.clone(),
         options: run_options_from_engine(&normalized_options),
+        parsed_modules: inputs.parsed_modules.clone(),
     };
     let manifest = RunManifest::new(manifest_inputs, vec![configuration.run_id]);
     persist_manifest(&checkpoint_path, &manifest)?;
@@ -138,6 +139,7 @@ fn execute_resume(command: ResumeCommand) -> Result<()> {
         specification,
         configuration: configuration.clone(),
         options: run_options_from_engine(&normalized_options),
+        parsed_modules: inputs.parsed_modules.clone(),
     };
     let updated_manifest = RunManifest::new(manifest_inputs, lineage.chain().to_vec());
     persist_manifest(&command.checkpoint, &updated_manifest)?;
