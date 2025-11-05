@@ -7,8 +7,8 @@ use std::{
 };
 
 use anyhow::{anyhow, Context, Result};
-use opentelemetry::{global, KeyValue};
-use opentelemetry_otlp::{HttpExporterBuilder, WithExportConfig};
+use opentelemetry::{global, trace::TracerProvider, KeyValue};
+use opentelemetry_otlp::{SpanExporter, WithExportConfig, WithHttpConfig};
 use opentelemetry_sdk::{trace, Resource};
 use tracing::level_filters::LevelFilter;
 use tracing_appender::{non_blocking::WorkerGuard, rolling};
@@ -81,6 +81,7 @@ impl Default for TelemetryConfig {
 pub struct TelemetryGuard {
     _file_guard: Option<WorkerGuard>,
     otlp_active: bool,
+    tracer_provider: Option<trace::SdkTracerProvider>,
 }
 
 impl TelemetryGuard {
@@ -97,8 +98,10 @@ impl TelemetryGuard {
 
 impl Drop for TelemetryGuard {
     fn drop(&mut self) {
-        if self.otlp_active {
-            global::shutdown_tracer_provider();
+        if let Some(provider) = self.tracer_provider.take() {
+            if let Err(error) = provider.shutdown() {
+                tracing::warn!(%error, "failed to shutdown OTLP tracer provider cleanly");
+            }
         }
     }
 }
@@ -143,11 +146,13 @@ pub fn init_tracing(config: TelemetryConfig) -> Result<TelemetryGuard> {
         .with_filter(console_filter);
 
     let mut otlp_active = false;
+    let mut tracer_provider = None;
     let otlp_layer: Box<dyn Layer<Registry> + Send + Sync> =
         match build_otlp_layer(&config).transpose()? {
-            Some(layer) => {
+            Some(otlp) => {
                 otlp_active = true;
-                Box::new(layer)
+                tracer_provider = Some(otlp.provider.clone());
+                otlp.layer
             }
             None => Box::new(Identity::new()),
         };
@@ -169,6 +174,7 @@ pub fn init_tracing(config: TelemetryConfig) -> Result<TelemetryGuard> {
     Ok(TelemetryGuard {
         _file_guard: Some(file_guard),
         otlp_active,
+        tracer_provider,
     })
 }
 
@@ -184,7 +190,12 @@ fn ensure_directory(path: &Path) -> Result<()> {
     })
 }
 
-fn build_otlp_layer(config: &TelemetryConfig) -> Option<Result<impl Layer<Registry>>> {
+struct OtlpLayerInstall {
+    layer: Box<dyn Layer<Registry> + Send + Sync>,
+    provider: trace::SdkTracerProvider,
+}
+
+fn build_otlp_layer(config: &TelemetryConfig) -> Option<Result<OtlpLayerInstall>> {
     if config.mode != TelemetryMode::Otlp {
         return None;
     }
@@ -198,48 +209,53 @@ fn build_otlp_layer(config: &TelemetryConfig) -> Option<Result<impl Layer<Regist
     Some(endpoint.and_then(|endpoint| {
         let resource = build_resource(config);
         let exporter = build_otlp_exporter(config, endpoint)?;
-        let _tracer = opentelemetry_otlp::new_pipeline()
-            .tracing()
-            .with_trace_config(trace::Config::default().with_resource(resource))
-            .with_exporter(exporter)
-            .install_simple()
-            .context("failed to install OTLP exporter")?;
+        let tracer_provider = trace::SdkTracerProvider::builder()
+            .with_simple_exporter(exporter)
+            .with_resource(resource)
+            .build();
 
-        Ok(tracing_opentelemetry::layer())
+        global::set_tracer_provider(tracer_provider.clone());
+        let tracer = tracer_provider.tracer(config.service_name.clone());
+        Ok(OtlpLayerInstall {
+            layer: Box::new(tracing_opentelemetry::layer().with_tracer(tracer)),
+            provider: tracer_provider,
+        })
     }))
 }
 
-fn build_otlp_exporter(config: &TelemetryConfig, endpoint: String) -> Result<HttpExporterBuilder> {
-    let mut exporter = opentelemetry_otlp::new_exporter()
-        .http()
+fn build_otlp_exporter(config: &TelemetryConfig, endpoint: String) -> Result<SpanExporter> {
+    let mut builder = SpanExporter::builder()
+        .with_http()
         .with_endpoint(endpoint)
         .with_timeout(config.otlp_timeout);
 
     if !config.otlp_headers.is_empty() {
         let headers: HashMap<String, String> = config.otlp_headers.iter().cloned().collect();
-        exporter = exporter.with_headers(headers);
+        builder = builder.with_headers(headers);
     }
 
-    Ok(exporter)
+    builder
+        .build()
+        .context("failed to build OTLP span exporter")
 }
 
 fn build_resource(config: &TelemetryConfig) -> Resource {
-    let mut attributes = vec![
+    let mut builder = Resource::builder_empty().with_attributes([
         KeyValue::new("service.name", config.service_name.clone()),
         KeyValue::new("telemetry.sdk.language", "rust"),
-    ];
+    ]);
 
     if let Some(version) = config
         .service_version
         .clone()
         .or_else(|| Some(DEFAULT_SERVICE_VERSION.to_string()))
     {
-        attributes.push(KeyValue::new("service.version", version));
+        builder = builder.with_attribute(KeyValue::new("service.version", version));
     }
 
     if let Some(environment) = config.environment.clone() {
-        attributes.push(KeyValue::new("deployment.environment", environment));
+        builder = builder.with_attribute(KeyValue::new("deployment.environment", environment));
     }
 
-    Resource::new(attributes)
+    builder.build()
 }
