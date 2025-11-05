@@ -1,11 +1,16 @@
 //! Shared utilities for the Rust-native TLC workspace.
 pub mod fingerprint;
 pub mod model;
+pub mod parser;
 
 pub use fingerprint::{FingerprintBuilder, FingerprintError, StateFingerprint};
 pub use model::{
     Blake3Digest, ExplorationRun, ProgressMode, RunConfiguration, RunStatus, SpecificationPackage,
     TelemetryMode, ValidationError,
+};
+pub use parser::{
+    parse_module, AstNode, Declaration, Expression, Identifier, Module, OperatorDefinition,
+    ParseError, ParseResult, ParserOptions, Span, TokenTree,
 };
 
 pub mod prelude {

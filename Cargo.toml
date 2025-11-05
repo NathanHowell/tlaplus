@@ -46,6 +46,7 @@ tempfile = "3.10"
 toml = "0.9"
 globset = "0.4"
 proptest = "1.4"
+winnow = "0.7"
 
 [profile.dev]
 opt-level = 1
