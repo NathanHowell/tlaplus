@@ -57,3 +57,7 @@ path = "worker_skew.rs"
 [[test]]
 name = "scheduler_extension"
 path = "scheduler_extension.rs"
+
+[[test]]
+name = "model_checker_basic"
+path = "model_checker_basic.rs"
